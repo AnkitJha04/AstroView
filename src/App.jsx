@@ -4,7 +4,6 @@ import {
   Activity,
   Bell,
   Compass,
-  LocateFixed,
   MapPin,
   Navigation,
   Pause,
@@ -186,6 +185,8 @@ export default function App() {
   const [notifyTips, setNotifyTips] = useState("");
   const [nasaStatus, setNasaStatus] = useState("Idle");
   const [nasaError, setNasaError] = useState("");
+  const [telescopeFeeds, setTelescopeFeeds] = useState({ hubble: null, jwst: null });
+  const [telescopeFeedStatus, setTelescopeFeedStatus] = useState("Idle");
   const [feedback, setFeedback] = useState(null);
   const [apodSummary, setApodSummary] = useState("");
   const [apodSummaryStatus, setApodSummaryStatus] = useState("idle");
@@ -436,6 +437,8 @@ export default function App() {
   );
 
   const activeSatellite = satelliteTarget === "jwst" ? jwstSat : hubbleSat;
+  const activeTelescopeFeed =
+    satelliteTarget === "jwst" ? telescopeFeeds.jwst : telescopeFeeds.hubble;
 
   useEffect(() => {
     if (!coords) return;
@@ -556,6 +559,47 @@ export default function App() {
 
   useEffect(() => {
     loadNasa();
+  }, []);
+
+  const fetchLatestImage = async (query) => {
+    const url = `https://images-api.nasa.gov/search?q=${encodeURIComponent(query)}&media_type=image`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Image feed request failed");
+    const data = await res.json();
+    const item = data?.collection?.items?.[0];
+    if (!item) return null;
+    const link = item.links?.find((entry) => entry.render === "image")?.href;
+    const meta = item.data?.[0];
+    if (!link || !meta) return null;
+    return {
+      title: meta.title || query,
+      date: meta.date_created || "",
+      description: meta.description || "",
+      image: link
+    };
+  };
+
+  useEffect(() => {
+    let active = true;
+    const loadFeeds = async () => {
+      try {
+        setTelescopeFeedStatus("Loading latest imagery...");
+        const [hubble, jwst] = await Promise.all([
+          fetchLatestImage("Hubble Space Telescope"),
+          fetchLatestImage("James Webb Space Telescope")
+        ]);
+        if (!active) return;
+        setTelescopeFeeds({ hubble, jwst });
+        setTelescopeFeedStatus("Latest imagery ready");
+      } catch (err) {
+        if (!active) return;
+        setTelescopeFeedStatus("Imagery feed unavailable");
+      }
+    };
+    loadFeeds();
+    return () => {
+      active = false;
+    };
   }, []);
 
   const matches = useMemo(() => {
@@ -983,27 +1027,6 @@ export default function App() {
               {city || locationStatus || "--"}
             </span>
           </div>
-          {apodImage && nasaApod && (
-            <div className="mt-2 w-[320px] rounded-2xl panel-glass overflow-hidden">
-              <div className="h-36 w-full bg-slate-950">
-                <img
-                  src={apodImage}
-                  alt={nasaApod.title}
-                  className="h-full w-full object-cover"
-                  loading="lazy"
-                />
-              </div>
-              <div className="px-4 py-3">
-                <div className="text-[10px] uppercase tracking-[0.3em] text-slate-400">
-                  APOD Spotlight
-                </div>
-                <div className="text-sm font-semibold text-slate-100">
-                  {nasaApod.title}
-                </div>
-                <div className="text-[11px] text-slate-400">{nasaApod.date}</div>
-              </div>
-            </div>
-          )}
         </div>
 
         <div className="flex flex-col items-end gap-4 w-80">
@@ -1074,26 +1097,20 @@ export default function App() {
           >
             Live Notifications & Updates
           </button>
+          <button
+            onClick={handleToggleSensors}
+            className={`w-full rounded-full border px-4 py-2 text-[11px] text-slate-100 transition-colors ${
+              useSensors
+                ? "border-cyan-400/40 bg-cyan-500/25 hover:bg-cyan-500/35"
+                : "border-white/15 bg-white/5 hover:bg-white/10"
+            }`}
+          >
+            {useSensors ? "Sensors Active" : "Manual Mode"}
+          </button>
         </div>
       </header>
 
-      <aside className="absolute left-6 top-1/2 -translate-y-1/2 flex flex-col gap-3 z-20">
-        <button
-          onClick={handleToggleSensors}
-          className={`w-12 h-12 rounded-2xl border text-cyan-100 flex items-center justify-center transition-colors ${
-            useSensors
-              ? "border-cyan-400/40 bg-cyan-500/30 hover:bg-cyan-500/40"
-              : "border-white/15 bg-white/5 hover:bg-white/10"
-          }`}
-        >
-          <LocateFixed className="w-5 h-5" />
-        </button>
-        <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500 text-center">
-          {useSensors ? "sensors" : "manual"}
-        </div>
-      </aside>
-
-      <div className="absolute right-6 top-32 w-80 space-y-5 z-20 max-h-[calc(100vh-220px)] overflow-y-auto pb-6">
+      <div className="absolute left-6 bottom-36 w-80 space-y-5 z-20 max-h-[calc(100vh-260px)] overflow-y-auto pb-6">
         <aside className="rounded-3xl panel-glass px-5 py-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-xs uppercase tracking-[0.3em] text-slate-400">
@@ -1229,13 +1246,33 @@ export default function App() {
             {geoStatus === "active" ? "GPS locked" : "GPS idle"}
             {geoError ? ` · ${geoError}` : ""}
           </div>
-        </div>
-        <div className="text-[11px] text-slate-400">
-          {orientationStatus === "active"
-            ? "Gyro active"
-            : "Gyro idle"}
+          <div className="text-[11px] text-slate-400">
+            {orientationStatus === "active" ? "Gyro active" : "Gyro idle"}
+          </div>
         </div>
       </footer>
+
+      {apodImage && nasaApod && (
+        <div className="absolute bottom-6 right-6 w-[320px] rounded-2xl panel-glass overflow-hidden z-20">
+          <div className="h-36 w-full bg-slate-950">
+            <img
+              src={apodImage}
+              alt={nasaApod.title}
+              className="h-full w-full object-cover"
+              loading="lazy"
+            />
+          </div>
+          <div className="px-4 py-3">
+            <div className="text-[10px] uppercase tracking-[0.3em] text-slate-400">
+              APOD Spotlight
+            </div>
+            <div className="text-sm font-semibold text-slate-100">
+              {nasaApod.title}
+            </div>
+            <div className="text-[11px] text-slate-400">{nasaApod.date}</div>
+          </div>
+        </div>
+      )}
 
       {showNotifications && (
         <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm">
@@ -1471,6 +1508,40 @@ export default function App() {
                     Satellite data unavailable. Check network or retry shortly.
                   </div>
                 )}
+                <div className="mt-6">
+                  <div className="text-[11px] uppercase tracking-[0.3em] text-slate-400 mb-3">
+                    Latest Telescope Feed
+                  </div>
+                  {activeTelescopeFeed?.image ? (
+                    <div className="rounded-2xl overflow-hidden border border-white/10">
+                      <img
+                        src={activeTelescopeFeed.image}
+                        alt={activeTelescopeFeed.title}
+                        className="h-48 w-full object-cover"
+                        loading="lazy"
+                      />
+                      <div className="px-4 py-3 bg-slate-950/70">
+                        <div className="text-sm font-semibold text-slate-100">
+                          {activeTelescopeFeed.title}
+                        </div>
+                        {activeTelescopeFeed.date && (
+                          <div className="text-[11px] text-slate-400">
+                            {new Date(activeTelescopeFeed.date).toLocaleString()}
+                          </div>
+                        )}
+                        {activeTelescopeFeed.description && (
+                          <div className="mt-2 text-[11px] text-slate-300 max-h-16 overflow-hidden">
+                            {activeTelescopeFeed.description}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-slate-400">
+                      {telescopeFeedStatus}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>

@@ -157,7 +157,7 @@ export default function SkyDome({ objects, view, onViewChange, isLoading, status
 
   return (
     <div className="absolute inset-0">
-      <div className="absolute top-6 left-6 z-30 rounded-full border border-white/10 bg-slate-950/70 px-4 py-2 text-[11px] text-slate-200 backdrop-blur">
+      <div className="absolute top-6 left-1/2 z-30 -translate-x-1/2 rounded-full border border-white/10 bg-slate-950/70 px-4 py-2 text-[11px] text-slate-200 backdrop-blur">
         {isLoading ? "Loading 360 sky..." : status}
       </div>
       {isLoading && (
