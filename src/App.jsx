@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Astronomy from "astronomy-engine";
 import {
   Activity,
@@ -188,6 +188,7 @@ export default function App() {
   const [telescopeFeeds, setTelescopeFeeds] = useState({ hubble: null, jwst: null });
   const [telescopeFeedStatus, setTelescopeFeedStatus] = useState("Idle");
   const [telescopeFeedUpdatedAt, setTelescopeFeedUpdatedAt] = useState(null);
+  const [telescopeFeedError, setTelescopeFeedError] = useState("");
   const [feedback, setFeedback] = useState(null);
   const [apodSummary, setApodSummary] = useState("");
   const [apodSummaryStatus, setApodSummaryStatus] = useState("idle");
@@ -573,6 +574,44 @@ export default function App() {
     return sorted[0]?.item || null;
   };
 
+  const normalizeImageUrl = (baseUrl, url) => {
+    if (!url) return "";
+    if (url.startsWith("http")) return url;
+    if (url.startsWith("//")) return `https:${url}`;
+    if (url.startsWith("/")) return `${baseUrl}${url}`;
+    return url;
+  };
+
+  const fetchLatestFromTelescopeSite = async (baseUrl, fallbackLabel) => {
+    const listRes = await fetch(`${baseUrl}/api/v3/images?page=1`);
+    if (!listRes.ok) throw new Error("Telescope feed request failed");
+    const list = await listRes.json();
+    const candidates = Array.isArray(list) ? list : [];
+    const latest = candidates
+      .filter((item) => item?.publication_date)
+      .sort(
+        (a, b) =>
+          new Date(b.publication_date).getTime() -
+          new Date(a.publication_date).getTime()
+      )[0] || candidates[0];
+    if (!latest?.id) return null;
+    const detailRes = await fetch(`${baseUrl}/api/v3/image/${latest.id}`);
+    if (!detailRes.ok) throw new Error("Telescope detail request failed");
+    const detail = await detailRes.json();
+    const files = Array.isArray(detail?.image_files) ? detail.image_files : [];
+    const bestFile = files
+      .slice()
+      .sort((a, b) => (b.width || 0) - (a.width || 0))[0];
+    const imageUrl = normalizeImageUrl(baseUrl, bestFile?.file_url);
+    if (!imageUrl) return null;
+    return {
+      title: detail?.name || fallbackLabel,
+      date: detail?.publication_date || detail?.release_date || "",
+      description: detail?.description || detail?.abstract || "",
+      image: imageUrl
+    };
+  };
+
   const fetchLatestImage = async (query) => {
     const url = `https://images-api.nasa.gov/search?q=${encodeURIComponent(query)}&media_type=image`;
     const res = await fetch(url);
@@ -592,31 +631,73 @@ export default function App() {
     };
   };
 
+  const loadTelescopeFeeds = useCallback(async () => {
+    setTelescopeFeedStatus("Loading live imagery...");
+    setTelescopeFeedError("");
+
+    let hubble = null;
+    let jwst = null;
+    const errors = [];
+
+    try {
+      hubble = await fetchLatestFromTelescopeSite("https://hubblesite.org", "Hubble");
+    } catch (err) {
+      errors.push("Hubble live feed blocked.");
+    }
+
+    try {
+      jwst = await fetchLatestFromTelescopeSite("https://webbtelescope.org", "JWST");
+    } catch (err) {
+      errors.push("JWST live feed blocked.");
+    }
+
+    if (!hubble) {
+      try {
+        hubble = await fetchLatestImage("Hubble Space Telescope");
+      } catch (err) {
+        errors.push("Hubble fallback failed.");
+      }
+    }
+
+    if (!jwst) {
+      try {
+        jwst = await fetchLatestImage("James Webb Space Telescope");
+      } catch (err) {
+        errors.push("JWST fallback failed.");
+      }
+    }
+
+    setTelescopeFeeds({ hubble, jwst });
+    setTelescopeFeedUpdatedAt(new Date());
+
+    if (!hubble && !jwst) {
+      setTelescopeFeedStatus("Imagery feed unavailable");
+      setTelescopeFeedError(errors.join(" ") || "All feeds unavailable.");
+      return;
+    }
+
+    if (!hubble || !jwst) {
+      setTelescopeFeedStatus("Partial feed (fallback)");
+      setTelescopeFeedError(errors.join(" "));
+      return;
+    }
+
+    setTelescopeFeedStatus("Live feed updated");
+  }, []);
+
   useEffect(() => {
     let active = true;
     const loadFeeds = async () => {
-      try {
-        setTelescopeFeedStatus("Loading latest imagery...");
-        const [hubble, jwst] = await Promise.all([
-          fetchLatestImage("Hubble Space Telescope"),
-          fetchLatestImage("James Webb Space Telescope")
-        ]);
-        if (!active) return;
-        setTelescopeFeeds({ hubble, jwst });
-        setTelescopeFeedUpdatedAt(new Date());
-        setTelescopeFeedStatus("Latest imagery ready");
-      } catch (err) {
-        if (!active) return;
-        setTelescopeFeedStatus("Imagery feed unavailable");
-      }
+      if (!active) return;
+      await loadTelescopeFeeds();
     };
     loadFeeds();
-    const intervalId = setInterval(loadFeeds, 1000 * 60 * 30);
+    const intervalId = setInterval(loadFeeds, 1000 * 60 * 10);
     return () => {
       active = false;
       clearInterval(intervalId);
     };
-  }, []);
+  }, [loadTelescopeFeeds]);
 
   const matches = useMemo(() => {
     if (!search.trim()) return [];
@@ -1530,11 +1611,19 @@ export default function App() {
                   </div>
                   <div className="mb-3 text-[11px] text-slate-400 flex items-center justify-between">
                     <span>{telescopeFeedStatus}</span>
-                    <span>
-                      {telescopeFeedUpdatedAt
-                        ? `Updated ${telescopeFeedUpdatedAt.toLocaleTimeString()}`
-                        : ""}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span>
+                        {telescopeFeedUpdatedAt
+                          ? `Updated ${telescopeFeedUpdatedAt.toLocaleTimeString()}`
+                          : ""}
+                      </span>
+                      <button
+                        onClick={loadTelescopeFeeds}
+                        className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-slate-200 hover:bg-white/10"
+                      >
+                        Refresh
+                      </button>
+                    </div>
                   </div>
                   {activeTelescopeFeed?.image ? (
                     <div className="rounded-2xl overflow-hidden border border-white/10">
