@@ -44,6 +44,41 @@ const NASA_API_KEY = import.meta.env.VITE_NASA_API_KEY || "RVIyEa32Wc7hJum3LX77e
 const OLLAMA_MODEL = import.meta.env.VITE_OLLAMA_MODEL || "llama3.1:latest";
 const OLLAMA_BASE_URL = "http://localhost:11434";
 const OLLAMA_TIMEOUT_MS = Number(import.meta.env.VITE_OLLAMA_TIMEOUT_MS) || 45000;
+const HUBBLE_LIVE_URL = import.meta.env.VITE_HUBBLE_LIVE_URL || "https://www.youtube.com/watch?v=aB1yRz0HhdY";
+const JWST_LIVE_URL = import.meta.env.VITE_JWST_LIVE_URL || "https://www.youtube.com/watch?v=FV4Q9DryTG8";
+
+const getEmbedOrigin = () => {
+  if (typeof window === "undefined") return "";
+  return window.location.origin;
+};
+
+const toEmbedUrl = (url) => {
+  if (!url) return "";
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace("www.", "");
+    const origin = getEmbedOrigin();
+    const originParam = origin ? `&origin=${encodeURIComponent(origin)}` : "";
+    if (host === "youtube.com" || host === "m.youtube.com") {
+      const videoId = parsed.searchParams.get("v");
+      if (videoId) {
+        return `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&rel=0&modestbranding=1&playsinline=1${originParam}`;
+      }
+      if (parsed.pathname.startsWith("/embed/")) {
+        return `${parsed.origin}${parsed.pathname}?autoplay=1&mute=1&rel=0&modestbranding=1&playsinline=1${originParam}`;
+      }
+    }
+    if (host === "youtu.be") {
+      const videoId = parsed.pathname.replace("/", "");
+      if (videoId) {
+        return `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&rel=0&modestbranding=1&playsinline=1${originParam}`;
+      }
+    }
+    return url;
+  } catch (err) {
+    return url;
+  }
+};
 const ASTRONOMY_API_BASE = "https://api.astronomyapi.com/api/v2";
 const ASTRONOMY_APP_ID = import.meta.env.VITE_ASTRONOMY_APP_ID || "89fc06d3-ac66-4c2b-af29-f1e60528a429";
 const ASTRONOMY_APP_SECRET = import.meta.env.VITE_ASTRONOMY_APP_SECRET || "95fc06d51756c1e3dcb219aca405139e44e65cfe76a41205511a84cde05a018ec4efc97f9c75721e41dc8184599861188ed72f256d4f406a2321e3da371853b211e233b41b548de80764c84839c35c990a0c35a167770673c231ae5250f124489f3c083b8d3807675f3466d487b69ab6";
@@ -190,6 +225,7 @@ export default function App() {
   const [telescopeFeedUpdatedAt, setTelescopeFeedUpdatedAt] = useState(null);
   const [telescopeFeedError, setTelescopeFeedError] = useState("");
   const [telescopeFeedMode, setTelescopeFeedMode] = useState("live");
+  const [liveEmbedLoaded, setLiveEmbedLoaded] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [apodSummary, setApodSummary] = useState("");
   const [apodSummaryStatus, setApodSummaryStatus] = useState("idle");
@@ -442,6 +478,11 @@ export default function App() {
   const activeSatellite = satelliteTarget === "jwst" ? jwstSat : hubbleSat;
   const activeTelescopeFeed =
     satelliteTarget === "jwst" ? telescopeFeeds.jwst : telescopeFeeds.hubble;
+  const activeLiveUrl = useMemo(
+    () =>
+      toEmbedUrl(satelliteTarget === "jwst" ? JWST_LIVE_URL : HUBBLE_LIVE_URL),
+    [satelliteTarget]
+  );
 
   useEffect(() => {
     if (!coords) return;
@@ -637,23 +678,50 @@ export default function App() {
   };
 
   const loadTelescopeFeeds = useCallback(async () => {
-    setTelescopeFeedStatus("Loading live imagery...");
+    const isLive = telescopeFeedMode === "live";
+    setTelescopeFeedStatus(isLive ? "Loading live feed..." : "Loading imagery...");
     setTelescopeFeedError("");
+
+    if (isLive) {
+      const missing = [];
+      if (!HUBBLE_LIVE_URL) missing.push("Hubble live URL");
+      if (!JWST_LIVE_URL) missing.push("JWST live URL");
+      setTelescopeFeedUpdatedAt(new Date());
+      if (missing.length) {
+        setTelescopeFeedStatus("Live stream not configured");
+        setTelescopeFeedError(
+          `Missing ${missing.join(" and ")}. Set VITE_HUBBLE_LIVE_URL and VITE_JWST_LIVE_URL.`
+        );
+      } else {
+        setTelescopeFeedStatus("Live streams ready");
+      }
+      return;
+    }
 
     let hubble = null;
     let jwst = null;
     const errors = [];
 
-    try {
-      hubble = await fetchLatestFromTelescopeSite("https://hubblesite.org", "Hubble");
-    } catch (err) {
-      errors.push("Hubble live feed blocked.");
-    }
+    if (isLive) {
+      try {
+        hubble = await fetchLatestFromTelescopeSite(
+          "https://hubblesite.org",
+          "/proxy/hubble",
+          "Hubble"
+        );
+      } catch (err) {
+        errors.push("Hubble live feed blocked.");
+      }
 
-    try {
-      jwst = await fetchLatestFromTelescopeSite("https://webbtelescope.org", "JWST");
-    } catch (err) {
-      errors.push("JWST live feed blocked.");
+      try {
+        jwst = await fetchLatestFromTelescopeSite(
+          "https://webbtelescope.org",
+          "/proxy/jwst",
+          "JWST"
+        );
+      } catch (err) {
+        errors.push("JWST live feed blocked.");
+      }
     }
 
     if (!hubble) {
@@ -682,13 +750,13 @@ export default function App() {
     }
 
     if (!hubble || !jwst) {
-      setTelescopeFeedStatus("Partial feed (fallback)");
+      setTelescopeFeedStatus(isLive ? "Partial live feed" : "Partial imagery");
       setTelescopeFeedError(errors.join(" "));
       return;
     }
 
-    setTelescopeFeedStatus("Live feed updated");
-  }, []);
+    setTelescopeFeedStatus(isLive ? "Live feed updated" : "Imagery updated");
+  }, [telescopeFeedMode]);
 
   useEffect(() => {
     let active = true;
@@ -702,7 +770,22 @@ export default function App() {
       active = false;
       clearInterval(intervalId);
     };
-  }, [loadTelescopeFeeds]);
+  }, [loadTelescopeFeeds, telescopeFeedMode]);
+
+  useEffect(() => {
+    if (telescopeFeedMode !== "live") return;
+    setLiveEmbedLoaded(false);
+    const timeoutId = setTimeout(() => {
+      if (!liveEmbedLoaded) {
+        setTelescopeFeedMode("image");
+        setFeedback({
+          tone: "error",
+          message: "Live stream blocked. Switched to image feed."
+        });
+      }
+    }, 4000);
+    return () => clearTimeout(timeoutId);
+  }, [telescopeFeedMode, satelliteTarget, liveEmbedLoaded]);
 
   const matches = useMemo(() => {
     if (!search.trim()) return [];
@@ -838,6 +921,10 @@ export default function App() {
         tone: "error",
         message: "Ollama request failed."
       });
+      if (mode === "tips") {
+        setNotifyTips("Tips unavailable. Make sure Ollama is running and try again.");
+        setTipsStatus("error");
+      }
       setLlmError(
         err?.name === "AbortError"
           ? "Ollama request timed out. Try again or use a smaller prompt."
@@ -976,6 +1063,7 @@ export default function App() {
   }, [feedback]);
 
   useEffect(() => {
+    if (tipsStatus === "error") return;
     if (notifyTips) {
       setTipsStatus("done");
       return;
@@ -1272,7 +1360,11 @@ export default function App() {
                 </div>
                 <div>
                   <div className="text-[10px] uppercase text-slate-500">Magnitude</div>
-                  <div>{selectedObject.mag.toFixed(2)}</div>
+                  <div>
+                    {selectedObject.mag !== null && selectedObject.mag !== undefined
+                      ? selectedObject.mag.toFixed(2)
+                      : "--"}
+                  </div>
                 </div>
                 <div>
                   <div className="text-[10px] uppercase text-slate-500">Constellation</div>
@@ -1435,7 +1527,13 @@ export default function App() {
                     Generate viewing tips
                   </button>
                   <span className="text-[11px] text-slate-400">
-                    {tipsStatus === "loading" ? "Generating..." : tipsStatus === "done" ? "Ready" : ""}
+                    {tipsStatus === "loading"
+                      ? "Generating..."
+                      : tipsStatus === "done"
+                        ? "Ready"
+                        : tipsStatus === "error"
+                          ? "Error"
+                          : ""}
                   </span>
                 </div>
                 {notifyTips && (
@@ -1614,6 +1712,28 @@ export default function App() {
                   <div className="text-[11px] uppercase tracking-[0.3em] text-slate-400 mb-3">
                     Latest Telescope Feed
                   </div>
+                  <div className="mb-3 flex items-center gap-2 text-[11px]">
+                    <button
+                      onClick={() => setTelescopeFeedMode("live")}
+                      className={`rounded-full border px-3 py-1 text-[10px] uppercase tracking-[0.2em] ${
+                        telescopeFeedMode === "live"
+                          ? "border-cyan-400/40 bg-cyan-500/25 text-cyan-100"
+                          : "border-white/10 bg-white/5 text-slate-300"
+                      }`}
+                    >
+                      Live Feed
+                    </button>
+                    <button
+                      onClick={() => setTelescopeFeedMode("image")}
+                      className={`rounded-full border px-3 py-1 text-[10px] uppercase tracking-[0.2em] ${
+                        telescopeFeedMode === "image"
+                          ? "border-amber-300/40 bg-amber-300/20 text-amber-100"
+                          : "border-white/10 bg-white/5 text-slate-300"
+                      }`}
+                    >
+                      Image Feed
+                    </button>
+                  </div>
                   <div className="mb-3 text-[11px] text-slate-400 flex items-center justify-between">
                     <span>{telescopeFeedStatus}</span>
                     <div className="flex items-center gap-3">
@@ -1635,7 +1755,53 @@ export default function App() {
                       {telescopeFeedError}
                     </div>
                   )}
-                  {activeTelescopeFeed?.image ? (
+                  {telescopeFeedMode === "live" ? (
+                    <div className="rounded-2xl overflow-hidden border border-white/10 bg-slate-950/70">
+                      {activeSatellite ? (
+                        activeLiveUrl ? (
+                          <div className="relative">
+                            {!liveEmbedLoaded && (
+                              <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/80 text-xs text-slate-200">
+                                Loading live stream...
+                              </div>
+                            )}
+                            <iframe
+                              title={`${satelliteTarget} live feed`}
+                              src={activeLiveUrl}
+                              className="h-56 w-full"
+                              allow="autoplay; fullscreen"
+                              referrerPolicy="no-referrer"
+                              allowFullScreen
+                              onLoad={() => setLiveEmbedLoaded(true)}
+                            />
+                          </div>
+                        ) : (
+                          <div className="p-4 text-sm text-slate-300">
+                            Live stream URL missing. Switch to Image Feed.
+                          </div>
+                        )
+                      ) : (
+                        <div className="p-4 text-sm text-slate-300">
+                          Select a telescope to view its live stream.
+                        </div>
+                      )}
+                      <div className="px-4 py-2 text-[11px] text-slate-300 flex items-center justify-between border-t border-white/10 bg-slate-950/80">
+                        <span>If the player fails, open the stream directly.</span>
+                        <a
+                          href={
+                            satelliteTarget === "jwst"
+                              ? JWST_LIVE_URL
+                              : HUBBLE_LIVE_URL
+                          }
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] text-slate-200 hover:bg-white/10"
+                        >
+                          Open in YouTube
+                        </a>
+                      </div>
+                    </div>
+                  ) : activeTelescopeFeed?.image ? (
                     <div className="rounded-2xl overflow-hidden border border-white/10">
                       <img
                         src={activeTelescopeFeed.image}
