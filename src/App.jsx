@@ -187,6 +187,7 @@ export default function App() {
   const [nasaError, setNasaError] = useState("");
   const [telescopeFeeds, setTelescopeFeeds] = useState({ hubble: null, jwst: null });
   const [telescopeFeedStatus, setTelescopeFeedStatus] = useState("Idle");
+  const [telescopeFeedUpdatedAt, setTelescopeFeedUpdatedAt] = useState(null);
   const [feedback, setFeedback] = useState(null);
   const [apodSummary, setApodSummary] = useState("");
   const [apodSummaryStatus, setApodSummaryStatus] = useState("idle");
@@ -561,12 +562,24 @@ export default function App() {
     loadNasa();
   }, []);
 
+  const pickLatestImage = (items) => {
+    const sorted = items
+      .map((item) => ({
+        item,
+        date: new Date(item?.data?.[0]?.date_created || 0).getTime()
+      }))
+      .filter((entry) => Number.isFinite(entry.date))
+      .sort((a, b) => b.date - a.date);
+    return sorted[0]?.item || null;
+  };
+
   const fetchLatestImage = async (query) => {
     const url = `https://images-api.nasa.gov/search?q=${encodeURIComponent(query)}&media_type=image`;
     const res = await fetch(url);
     if (!res.ok) throw new Error("Image feed request failed");
     const data = await res.json();
-    const item = data?.collection?.items?.[0];
+    const items = data?.collection?.items || [];
+    const item = pickLatestImage(items);
     if (!item) return null;
     const link = item.links?.find((entry) => entry.render === "image")?.href;
     const meta = item.data?.[0];
@@ -590,6 +603,7 @@ export default function App() {
         ]);
         if (!active) return;
         setTelescopeFeeds({ hubble, jwst });
+        setTelescopeFeedUpdatedAt(new Date());
         setTelescopeFeedStatus("Latest imagery ready");
       } catch (err) {
         if (!active) return;
@@ -597,8 +611,10 @@ export default function App() {
       }
     };
     loadFeeds();
+    const intervalId = setInterval(loadFeeds, 1000 * 60 * 30);
     return () => {
       active = false;
+      clearInterval(intervalId);
     };
   }, []);
 
@@ -1511,6 +1527,14 @@ export default function App() {
                 <div className="mt-6">
                   <div className="text-[11px] uppercase tracking-[0.3em] text-slate-400 mb-3">
                     Latest Telescope Feed
+                  </div>
+                  <div className="mb-3 text-[11px] text-slate-400 flex items-center justify-between">
+                    <span>{telescopeFeedStatus}</span>
+                    <span>
+                      {telescopeFeedUpdatedAt
+                        ? `Updated ${telescopeFeedUpdatedAt.toLocaleTimeString()}`
+                        : ""}
+                    </span>
                   </div>
                   {activeTelescopeFeed?.image ? (
                     <div className="rounded-2xl overflow-hidden border border-white/10">
