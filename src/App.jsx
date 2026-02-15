@@ -1,18 +1,29 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Astronomy from "astronomy-engine";
 import {
   Activity,
   Bell,
+  Book,
   Compass,
+  GraduationCap,
+  Globe2,
   MapPin,
   Navigation,
   Pause,
   Play,
   Search,
+  Star,
   X
 } from "lucide-react";
 import SkyCanvas from "./components/SkyCanvas";
 import SkyDome from "./components/SkyDome";
+import ClimateTab from "./components/ClimateTab";
+import { LearningModeProvider, useLearningMode } from "./lib/teaching/useLearningMode";
+import { ObjectLearningPanel, GuidedTour, LearningPromptBanner } from "./components/TeachingModule";
+import { LearningModeToggle } from "./components/EducationCard";
+import LessonsLibrary from "./components/LessonsLibrary";
+import ClimateEducation from "./components/ClimateEducation";
+import SatelliteEducation from "./components/SatelliteEducation";
 import brightStars from "./data/bright-stars.json";
 import constellations from "./data/constellations.json";
 import deepSky from "./data/deep-sky.json";
@@ -190,7 +201,7 @@ const isSpaceQuery = (text) => {
   return SPACE_KEYWORDS.some((keyword) => query.includes(keyword));
 };
 
-export default function App() {
+function AppContent() {
   const [view, setView] = useState({ az: 0, alt: 25, fov: 90 });
   const [selectedId, setSelectedId] = useState(null);
   const [isLive, setIsLive] = useState(true);
@@ -236,6 +247,9 @@ export default function App() {
   const [skyApiObjects, setSkyApiObjects] = useState([]);
   const [skyApiStatus, setSkyApiStatus] = useState("Idle");
   const lastSkyApiFetch = useRef(0);
+  const [activeTab, setActiveTab] = useState("sky"); // "sky" or "climate"
+  const [showLessonsLibrary, setShowLessonsLibrary] = useState(false);
+  const [showGuidedTour, setShowGuidedTour] = useState(false);
 
   const { status: orientationStatus, orientation, start: startOrientation } =
     useDeviceOrientation();
@@ -245,6 +259,9 @@ export default function App() {
     error: geoError,
     start: startGeolocation
   } = useGeolocation();
+
+  // Teaching Module context
+  const { learningMode, toggleLearningMode, presentationMode } = useLearningMode();
 
   useEffect(() => {
     if (!isLive) return;
@@ -1162,22 +1179,24 @@ export default function App() {
         <span className="meteor meteor-2" />
         <span className="meteor meteor-3" />
       </div>
-      {viewMode === "360" ? (
-        <SkyDome
-          objects={objects}
-          view={view}
-          onViewChange={handleViewChange}
-          isLoading={skyDomeLoading}
-          status={skyDomeStatus}
-        />
-      ) : (
-        <SkyCanvas
-          objects={objects}
-          view={view}
-          selectedId={selectedId}
-          onSelect={handleSelect}
-          constellations={constellationLines}
-        />
+      {activeTab === "sky" && (
+        viewMode === "360" ? (
+          <SkyDome
+            objects={objects}
+            view={view}
+            onViewChange={handleViewChange}
+            isLoading={skyDomeLoading}
+            status={skyDomeStatus}
+          />
+        ) : (
+          <SkyCanvas
+            objects={objects}
+            view={view}
+            selectedId={selectedId}
+            onSelect={handleSelect}
+            constellations={constellationLines}
+          />
+        )
       )}
 
       <header className="absolute left-6 right-6 top-6 flex items-start justify-between gap-8 z-40">
@@ -1274,8 +1293,34 @@ export default function App() {
             <button
               onClick={() => setViewMode((mode) => (mode === "360" ? "2d" : "360"))}
               className="flex-1 rounded-full border border-cyan-400/30 bg-cyan-500/20 px-3 py-2 text-[11px] text-cyan-100 hover:bg-cyan-500/30"
+              disabled={activeTab !== "sky"}
             >
               {viewMode === "360" ? "Switch to 2D" : "Switch to 360"}
+            </button>
+          </div>
+          {/* Tab Switcher */}
+          <div className="flex w-full rounded-full border border-white/10 bg-slate-900/80 p-1">
+            <button
+              onClick={() => setActiveTab("sky")}
+              className={`flex-1 flex items-center justify-center gap-2 rounded-full px-3 py-2 text-[11px] transition-colors ${
+                activeTab === "sky"
+                  ? "bg-cyan-500/25 text-cyan-100 border border-cyan-400/30"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Star className="w-3 h-3" />
+              Sky
+            </button>
+            <button
+              onClick={() => setActiveTab("climate")}
+              className={`flex-1 flex items-center justify-center gap-2 rounded-full px-3 py-2 text-[11px] transition-colors ${
+                activeTab === "climate"
+                  ? "bg-emerald-500/25 text-emerald-100 border border-emerald-400/30"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Globe2 className="w-3 h-3" />
+              Climate
             </button>
           </div>
           <div className="text-[10px] text-slate-500">
@@ -1297,10 +1342,58 @@ export default function App() {
           >
             {useSensors ? "Sensors Active" : "Manual Mode"}
           </button>
+          {/* Teaching Module Controls */}
+          <div className="w-full space-y-2 pt-2 border-t border-white/10">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleLearningMode}
+                className={`flex-1 flex items-center justify-center gap-2 rounded-full border px-3 py-2 text-[11px] transition-colors ${
+                  learningMode
+                    ? "border-purple-400/40 bg-purple-500/25 text-purple-100 hover:bg-purple-500/35"
+                    : "border-white/15 bg-white/5 text-slate-300 hover:bg-white/10"
+                }`}
+              >
+                <GraduationCap className="w-3 h-3" />
+                {learningMode ? "Learn ON" : "Learn"}
+              </button>
+              <button
+                onClick={() => setShowLessonsLibrary(true)}
+                className="flex items-center justify-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2 text-[11px] text-slate-300 hover:bg-white/10"
+              >
+                <Book className="w-3 h-3" />
+                Lessons
+              </button>
+            </div>
+            {learningMode && activeTab === "sky" && (
+              <button
+                onClick={() => setShowGuidedTour(true)}
+                className="w-full rounded-full border border-amber-400/30 bg-amber-500/20 px-4 py-2 text-[11px] text-amber-100 hover:bg-amber-500/30"
+              >
+                Start Guided Tour
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
-      <div className="absolute left-6 bottom-36 w-80 space-y-5 z-20 max-h-[calc(100vh-260px)] overflow-y-auto pb-6">
+      {/* Learning Prompt Banner */}
+      {learningMode && !selectedObject && activeTab === "sky" && (
+        <LearningPromptBanner message="Tap any object in the sky to learn about it" />
+      )}
+
+      {/* Climate Tab */}
+      {activeTab === "climate" && (
+        <div className="absolute left-6 right-6 top-36 bottom-36 z-20 overflow-y-auto pb-6">
+          <ClimateTab
+            coords={coords}
+            isActive={activeTab === "climate"}
+            showEducation={learningMode}
+          />
+        </div>
+      )}
+
+      {/* Sky Tab Panels */}
+      <div className={`absolute left-6 bottom-36 w-80 space-y-5 z-20 max-h-[calc(100vh-260px)] overflow-y-auto pb-6 ${activeTab !== "sky" ? "hidden" : ""}`}>
         <aside className="rounded-3xl panel-glass px-5 py-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-xs uppercase tracking-[0.3em] text-slate-400">
@@ -1378,6 +1471,23 @@ export default function App() {
             </div>
           )}
         </aside>
+
+        {/* Object Learning Panel (Learning Mode) */}
+        {learningMode && selectedObject && (
+          <ObjectLearningPanel
+            object={selectedObject}
+            location={activeLocation}
+            time={time}
+          />
+        )}
+
+        {/* Satellite Education Panel (Learning Mode) */}
+        {learningMode && selectedObject?.type === "satellite" && (
+          <SatelliteEducation
+            satellite={selectedObject}
+            visible={learningMode}
+          />
+        )}
 
         <aside className="rounded-3xl panel-glass px-5 py-4">
           <div className="flex items-center justify-between mb-3">
@@ -1837,6 +1947,78 @@ export default function App() {
         </div>
       )}
 
+      {/* Lessons Library Modal */}
+      {showLessonsLibrary && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm">
+          <div className="w-full max-w-md h-[80vh] rounded-3xl overflow-hidden border border-white/10 shadow-2xl">
+            <LessonsLibrary
+              visible={showLessonsLibrary}
+              onClose={() => setShowLessonsLibrary(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Guided Tour Modal */}
+      {showGuidedTour && learningMode && (
+        <div className="fixed inset-x-4 bottom-40 z-50 max-h-[50vh] overflow-hidden">
+          <GuidedTour
+            objects={objects}
+            location={activeLocation}
+            time={time}
+            onSelectObject={(obj) => {
+              setSelectedId(obj.id);
+              setView((v) => ({ ...v, az: obj.az, alt: obj.alt }));
+            }}
+            onClose={() => setShowGuidedTour(false)}
+          />
+        </div>
+      )}
+
     </div>
   );
+}
+
+// Wrap the app with LearningModeProvider for Teaching Module context
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <LearningModeProvider>
+        <AppContent />
+      </LearningModeProvider>
+    </ErrorBoundary>
+  );
+}
+
+// Simple error boundary for debugging
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error("AstroView Error:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 40, color: "white", background: "#0f172a", minHeight: "100vh" }}>
+          <h1 style={{ color: "#ef4444" }}>Something went wrong</h1>
+          <pre style={{ color: "#94a3b8", whiteSpace: "pre-wrap" }}>
+            {this.state.error?.message || "Unknown error"}
+          </pre>
+          <button 
+            onClick={() => window.location.reload()}
+            style={{ marginTop: 20, padding: "10px 20px", background: "#38bdf8", border: "none", borderRadius: 8, cursor: "pointer" }}
+          >
+            Reload Page
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
