@@ -53,16 +53,16 @@ const createLabelTexture = (text, color) => {
   if (!ctx) return null;
   const fontSize = 36;
   const padding = 16;
-  ctx.font = `600 ${fontSize}px Space Grotesk, sans-serif`;
+  ctx.font = `600 ${fontSize}px Inter, sans-serif`;
   const width = Math.ceil(ctx.measureText(text).width + padding * 2);
   const height = fontSize + padding * 2;
   canvas.width = width;
   canvas.height = height;
-  ctx.font = `600 ${fontSize}px Space Grotesk, sans-serif`;
-  ctx.fillStyle = "rgba(2, 6, 23, 0.65)";
+  ctx.font = `600 ${fontSize}px Inter, sans-serif`;
+  ctx.fillStyle = "rgba(13, 13, 13, 0.7)";
   ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = color;
-  ctx.shadowColor = "rgba(2, 6, 23, 0.9)";
+  ctx.shadowColor = "rgba(13, 13, 13, 0.9)";
   ctx.shadowBlur = 10;
   ctx.fillText(text, padding, fontSize + padding * 0.4);
   const texture = new THREE.CanvasTexture(canvas);
@@ -84,7 +84,7 @@ const SkyLabels = ({ objects }) => {
           const x = radius * Math.sin(theta) * Math.sin(phi);
           const y = radius * Math.cos(theta);
           const z = radius * Math.sin(theta) * Math.cos(phi);
-          const color = obj.type === "star" ? "#e2e8f0" : "#fbbf24";
+          const color = obj.type === "satellite" ? "#7000ff" : obj.type === "star" ? "#e5e5e5" : "#fbbf24";
           const labelTexture = createLabelTexture(obj.name, color);
           if (!labelTexture) return null;
           return {
@@ -112,7 +112,7 @@ const SkyLabels = ({ objects }) => {
 const SkyShell = () => (
   <mesh>
     <sphereGeometry args={[120, 48, 48]} />
-    <meshBasicMaterial color="#04070f" side={THREE.BackSide} />
+    <meshBasicMaterial color="#0d0d0d" side={THREE.BackSide} />
   </mesh>
 );
 
@@ -156,7 +156,7 @@ export default function SkyDome({ objects, view, onViewChange, isLoading, status
   };
 
   return (
-    <div className="absolute inset-0">
+    <div className="absolute inset-0 z-0">
       <div className="absolute top-6 left-1/2 z-30 -translate-x-1/2 rounded-full border border-white/10 bg-slate-950/70 px-4 py-2 text-[11px] text-slate-200 backdrop-blur">
         {isLoading ? "Loading 360 sky..." : status}
       </div>
@@ -169,6 +169,7 @@ export default function SkyDome({ objects, view, onViewChange, isLoading, status
         </div>
       )}
       <Canvas
+        className="absolute inset-0 z-0"
         camera={{ position: [0, 0, 0.1], fov: view.fov }}
         gl={{ antialias: true, alpha: true }}
         onPointerDown={handlePointerDown}

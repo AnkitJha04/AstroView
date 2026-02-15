@@ -7,9 +7,7 @@ import { useCallback, useState } from "react";
 import { Cloud, Droplets, Flame, Satellite, Sparkles, Thermometer } from "lucide-react";
 import EducationCard, { EducationSection, KeyFact } from "./EducationCard";
 import { useLearningMode } from "../lib/teaching/useLearningMode";
-
-const OLLAMA_BASE_URL = "http://localhost:11434";
-const OLLAMA_MODEL = import.meta.env.VITE_OLLAMA_MODEL || "llama3.1:latest";
+import { generateAiText } from "../lib/ai/aiClient";
 
 /**
  * Heatwave explanation based on risk level
@@ -200,27 +198,18 @@ Current Conditions:
 - Heatwave Risk: ${climateData.heatwaveRisk?.level}
 - Overall Status: ${climateData.climateStatus?.status} - ${climateData.climateStatus?.detail}
 
-Explain:
-1. What these conditions mean for daily life
-2. How satellites help monitor these conditions
-3. One interesting fact about climate monitoring
+Explain in three short lines:
+1) What these conditions mean for daily life
+2) How satellites help monitor these conditions
+3) One interesting fact about climate monitoring
 
-Keep it concise and educational. No emojis.`;
+Keep it concise and educational.`;
 
     try {
-      const res = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: OLLAMA_MODEL,
-          prompt,
-          stream: false
-        })
+      const explanation = await generateAiText({
+        prompt,
+        maxTokens: 220
       });
-
-      if (!res.ok) throw new Error("Request failed");
-      const data = await res.json();
-      const explanation = data.response || null;
       
       if (explanation) {
         setAiExplanation(explanation);

@@ -33,8 +33,6 @@ import {
   getTourSummary
 } from "../lib/teaching/guidedTourEngine";
 
-const OLLAMA_BASE_URL = "http://localhost:11434";
-const OLLAMA_MODEL = import.meta.env.VITE_OLLAMA_MODEL || "llama3.1:latest";
 const AUTO_ADVANCE_DELAY = 15000; // 15 seconds per tour stop
 
 /**

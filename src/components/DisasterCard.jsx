@@ -17,10 +17,10 @@ const RiskGauge = ({ score, size = 80 }) => {
 
   // Color based on score
   const getColor = (s) => {
-    if (s >= 85) return "#7c2d12";
-    if (s >= 60) return "#ef4444";
-    if (s >= 35) return "#f59e0b";
-    return "#22c55e";
+    if (s >= 85) return "#ff4500";
+    if (s >= 60) return "#ff6a1f";
+    if (s >= 35) return "#ff8a3d";
+    return "#ffb08a";
   };
 
   return (
@@ -97,7 +97,7 @@ const DisasterCard = ({
 
   if (!riskData) {
     return (
-      <div className="bg-black/40 backdrop-blur-lg rounded-xl border border-white/10 p-4">
+      <div className="panel-glass panel-hover rounded-xl p-4">
         <div className="flex items-center gap-3 mb-2">
           <span className="text-2xl">{icon}</span>
           <h3 className="text-sm font-semibold text-white/90">{title}</h3>
@@ -111,7 +111,7 @@ const DisasterCard = ({
 
   return (
     <div 
-      className="relative bg-black/40 backdrop-blur-lg rounded-xl border transition-all duration-300"
+      className="relative panel-glass panel-hover rounded-xl border transition-all duration-300"
       style={{ 
         borderColor: level?.color ? `${level.color}40` : 'rgba(255,255,255,0.1)',
         boxShadow: score >= 60 ? `0 0 20px ${level?.color}20` : 'none'
@@ -196,8 +196,7 @@ const DisasterCard = ({
                 e.stopPropagation();
                 setPanel(learnMoreType);
               }}
-              className="w-full mt-2 py-2 px-3 bg-indigo-500/20 hover:bg-indigo-500/30 
-                         rounded-lg text-xs text-indigo-300 transition-colors flex items-center justify-center gap-2"
+              className="w-full mt-2 py-2 px-3 btn-secondary flex items-center justify-center gap-2"
             >
               <span>📚</span>
               Learn about {title}

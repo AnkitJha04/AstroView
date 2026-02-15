@@ -10,9 +10,9 @@ const drawBackground = (ctx, width, height) => {
     height * 0.5,
     width * 0.85
   );
-  deep.addColorStop(0, "#0c1b33");
-  deep.addColorStop(0.4, "#07121f");
-  deep.addColorStop(1, "#02040a");
+  deep.addColorStop(0, "#1a1038");
+  deep.addColorStop(0.4, "#120f22");
+  deep.addColorStop(1, "#0d0d0d");
   ctx.fillStyle = deep;
   ctx.fillRect(0, 0, width, height);
 
@@ -24,9 +24,9 @@ const drawBackground = (ctx, width, height) => {
     height * 0.75,
     width * 0.6
   );
-  glow.addColorStop(0, "rgba(56, 189, 248, 0.18)");
-  glow.addColorStop(0.5, "rgba(30, 64, 175, 0.08)");
-  glow.addColorStop(1, "rgba(2, 6, 23, 0)");
+  glow.addColorStop(0, "rgba(112, 0, 255, 0.18)");
+  glow.addColorStop(0.5, "rgba(60, 35, 140, 0.08)");
+  glow.addColorStop(1, "rgba(13, 13, 13, 0)");
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, width, height);
 
@@ -35,9 +35,9 @@ const drawBackground = (ctx, width, height) => {
   ctx.rotate(-0.35);
   const band = ctx.createLinearGradient(-width, 0, width, 0);
   band.addColorStop(0, "rgba(2, 6, 23, 0)");
-  band.addColorStop(0.35, "rgba(148, 163, 184, 0.12)");
-  band.addColorStop(0.55, "rgba(56, 189, 248, 0.2)");
-  band.addColorStop(0.8, "rgba(148, 163, 184, 0.1)");
+  band.addColorStop(0.35, "rgba(176, 176, 176, 0.12)");
+  band.addColorStop(0.55, "rgba(112, 0, 255, 0.2)");
+  band.addColorStop(0.8, "rgba(176, 176, 176, 0.1)");
   band.addColorStop(1, "rgba(2, 6, 23, 0)");
   ctx.fillStyle = band;
   ctx.fillRect(-width, -height * 0.2, width * 2, height * 0.4);
@@ -51,8 +51,8 @@ const drawBackground = (ctx, width, height) => {
     height * 0.5,
     width * 0.9
   );
-  vignette.addColorStop(0, "rgba(2, 6, 23, 0)");
-  vignette.addColorStop(1, "rgba(2, 6, 23, 0.65)");
+  vignette.addColorStop(0, "rgba(13, 13, 13, 0)");
+  vignette.addColorStop(1, "rgba(13, 13, 13, 0.75)");
   ctx.fillStyle = vignette;
   ctx.fillRect(0, 0, width, height);
 };
@@ -94,7 +94,7 @@ const drawCardinals = (ctx, width, height, view) => {
   ];
 
   ctx.fillStyle = "rgba(226, 232, 240, 0.7)";
-  ctx.font = "12px \"Space Grotesk\", sans-serif";
+  ctx.font = "12px \"Inter\", sans-serif";
 
   labels.forEach((item) => {
     const point = projectAzAlt(item.az, 0, view, width, height);
@@ -115,6 +115,19 @@ const drawObjects = (ctx, objects, view, width, height, selectedId) => {
     const baseSize = obj.type === "star" ? clamp(4 - obj.mag * 0.7, 0.6, 3.4) : 4;
     const size = selectedId === obj.id ? baseSize + 2 : baseSize;
 
+    if (obj.type === "satellite") {
+      ctx.save();
+      ctx.strokeStyle = "rgba(112, 0, 255, 0.6)";
+      ctx.lineWidth = 1;
+      ctx.shadowColor = "rgba(112, 0, 255, 0.7)";
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.moveTo(point.x - size * 2.5, point.y + size * 2.5);
+      ctx.lineTo(point.x + size * 2.5, point.y - size * 2.5);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     ctx.beginPath();
     ctx.fillStyle = obj.color || "#ffffff";
     ctx.arc(point.x, point.y, size, 0, Math.PI * 2);
@@ -122,12 +135,24 @@ const drawObjects = (ctx, objects, view, width, height, selectedId) => {
 
     const label = obj.name || "";
     if (label) {
+      let labelAlpha = 0.85;
+      if (obj.type === "star") {
+        if (obj.mag <= 2) labelAlpha = 0.9;
+        else if (obj.mag <= 4) labelAlpha = 0.6;
+        else labelAlpha = 0.32;
+      } else if (obj.type && /nebula|galaxy|cluster|deep/i.test(obj.type)) {
+        labelAlpha = 0.5;
+      }
+
       ctx.save();
-      ctx.font = "10px \"Space Grotesk\", sans-serif";
-      ctx.fillStyle = obj.type === "star"
-        ? "rgba(226, 232, 240, 0.85)"
-        : "rgba(125, 211, 252, 0.9)";
-      ctx.shadowColor = "rgba(2, 6, 23, 0.8)";
+      ctx.font = "10px \"Inter\", sans-serif";
+      const labelColor = obj.type === "satellite"
+        ? `rgba(112, 0, 255, ${labelAlpha})`
+        : obj.type === "star"
+          ? `rgba(229, 229, 229, ${labelAlpha})`
+          : `rgba(176, 176, 176, ${labelAlpha})`;
+      ctx.fillStyle = labelColor;
+      ctx.shadowColor = "rgba(2, 6, 23, 0.85)";
       ctx.shadowBlur = 6;
       ctx.fillText(label, point.x + size + 4, point.y - size - 2);
       ctx.restore();
@@ -258,7 +283,7 @@ export default function SkyCanvas({ objects, view, onSelect, selectedId, constel
   };
 
   return (
-    <div ref={containerRef} className="absolute inset-0">
+    <div ref={containerRef} className="absolute inset-0 z-0">
       <canvas
         ref={canvasRef}
         className="w-full h-full touch-none"

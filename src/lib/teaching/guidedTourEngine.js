@@ -3,8 +3,7 @@
  * Selects interesting visible objects and guides user through them
  */
 
-const OLLAMA_BASE_URL = "http://localhost:11434";
-const OLLAMA_MODEL = import.meta.env.VITE_OLLAMA_MODEL || "llama3.1:latest";
+import { generateAiText } from "../ai/aiClient";
 
 /**
  * Object scoring criteria for tour selection
@@ -164,11 +163,11 @@ export const getViewingTip = (obj) => {
 export const generateObjectExplanation = async (obj, signal) => {
   const prompt = `You are a knowledgeable astronomy guide. Provide a concise, educational explanation about ${obj.name} (a ${obj.type}) for someone viewing it tonight.
 
-Include these sections (keep each brief, 1-2 sentences):
-1. WHAT IT IS: Basic classification
-2. KEY FACTS: Most interesting characteristics
-3. OBSERVATION TIP: How to best observe it tonight
-4. FUN FACT: One memorable detail
+Provide four short lines in this order:
+1) WHAT IT IS: Basic classification
+2) KEY FACTS: Most interesting characteristics
+3) OBSERVATION TIP: How to best observe it tonight
+4) FUN FACT: One memorable detail
 
 Object data:
 - Type: ${obj.type}
@@ -177,23 +176,15 @@ Object data:
 ${obj.mag !== null ? `- Magnitude: ${obj.mag.toFixed(2)} (brightness)` : ""}
 ${obj.constellation ? `- Constellation: ${obj.constellation}` : ""}
 
-Keep the tone educational but accessible. Do not use emojis.`;
+Keep the tone educational but accessible.`;
 
   try {
-    const res = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        prompt,
-        stream: false
-      }),
+    const response = await generateAiText({
+      prompt,
+      maxTokens: 350,
       signal
     });
-
-    if (!res.ok) throw new Error("Ollama request failed");
-    const data = await res.json();
-    return data.response || null;
+    return response || null;
   } catch (err) {
     console.error("Tour explanation error:", err);
     return null;

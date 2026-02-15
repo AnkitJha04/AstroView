@@ -61,16 +61,20 @@ Vite + React app that renders a real-time sky view using Astronomy Engine. It su
 - Stars use a small bundled bright-star sample in [src/data/bright-stars.json](src/data/bright-stars.json).
 - For large catalogs (multi-GB), place your files under public/catalogs and load them in the app. This repo does not include those datasets.
 
-## Local LLM
+## AI assistant
 
-- The assistant panel uses Ollama at `http://localhost:11434`.
-- Set `VITE_OLLAMA_MODEL` (default: `llama3.1:latest`).
-- Start Ollama before using the Ask/Summarize buttons.
+- Default provider is OpenRouter with `mistralai/mistral-7b-instruct:free`.
+- Set `VITE_OPENROUTER_API_KEY` to enable OpenRouter.
+- To switch back to local Ollama, set `VITE_AI_PROVIDER=ollama` and start Ollama.
+- Optional: `VITE_OLLAMA_MODEL` (default: `llama3.1:latest`) and `VITE_OLLAMA_BASE_URL`.
 
 ## Env vars
 
 - `VITE_ASTRONOMY_APP_ID` / `VITE_ASTRONOMY_APP_SECRET` for 360 mode Solar System sync.
 - `VITE_NASA_API_KEY` for APOD and DONKI updates (demo key is used otherwise).
+- `VITE_AI_PROVIDER` to switch between `openrouter` and `ollama`.
+- `VITE_OPENROUTER_API_KEY` for OpenRouter access.
+- `VITE_OPENROUTER_MODEL` (default: `mistralai/mistral-7b-instruct:free`).
 - `VITE_OLLAMA_MODEL` to change the local assistant model.
 
 No API keys are required for the core 2D sky map.

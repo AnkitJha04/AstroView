@@ -46,6 +46,14 @@ import {
 } from "./lib/astro/satellites";
 import { useDeviceOrientation } from "./lib/sensors/useDeviceOrientation";
 import { useGeolocation } from "./lib/sensors/useGeolocation";
+import {
+  fetchLocalOllamaModels,
+  generateAiText,
+  getAiModelName,
+  getAiProvider,
+  getAiProviderHelp,
+  getAiProviderLabel
+} from "./lib/ai/aiClient";
 
 const formatCoord = (value, suffixPositive, suffixNegative) => {
   const suffix = value >= 0 ? suffixPositive : suffixNegative;
@@ -55,9 +63,9 @@ const formatCoord = (value, suffixPositive, suffixNegative) => {
 
 const formatAngle = (value) => `${value.toFixed(1)}deg`;
 const NASA_API_KEY = import.meta.env.VITE_NASA_API_KEY || "RVIyEa32Wc7hJum3LX77eohhSqjdtsfwtxXMAyYe";
-const OLLAMA_MODEL = import.meta.env.VITE_OLLAMA_MODEL || "llama3.1:latest";
-const OLLAMA_BASE_URL = "http://localhost:11434";
-const OLLAMA_TIMEOUT_MS = Number(import.meta.env.VITE_OLLAMA_TIMEOUT_MS) || 45000;
+const AI_TIMEOUT_MS =
+  Number(import.meta.env.VITE_AI_TIMEOUT_MS || import.meta.env.VITE_OLLAMA_TIMEOUT_MS) ||
+  45000;
 const HUBBLE_LIVE_URL = import.meta.env.VITE_HUBBLE_LIVE_URL || "https://www.youtube.com/watch?v=aB1yRz0HhdY";
 const JWST_LIVE_URL = import.meta.env.VITE_JWST_LIVE_URL || "https://www.youtube.com/watch?v=FV4Q9DryTG8";
 
@@ -115,32 +123,9 @@ const getApiHorizontalPosition = (cell) => {
   return { az: azimuth, alt: altitude };
 };
 
-const fetchOllamaModels = async (signal) => {
-  const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, { signal });
-  if (!res.ok) return [];
-  const data = await res.json();
-  if (!Array.isArray(data?.models)) return [];
-  return data.models.map((model) => model.name).filter(Boolean);
-};
-
-const postOllamaGenerate = async (payload, signal) => {
-  const res = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-    signal
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    return { ok: false, error: text || "Ollama request failed" };
-  }
-  try {
-    const data = JSON.parse(text);
-    return { ok: true, data };
-  } catch (err) {
-    return { ok: false, error: "Invalid Ollama response" };
-  }
-};
+const aiProvider = getAiProvider();
+const aiProviderLabel = getAiProviderLabel();
+const aiProviderHelp = getAiProviderHelp();
 
 const formatEventTime = (timeValue) => {
   if (!timeValue) return "--";
@@ -205,6 +190,9 @@ const isSpaceQuery = (text) => {
 };
 
 function AppContent() {
+  const [debugHitTest, setDebugHitTest] = useState(false);
+  const [debugTargetInfo, setDebugTargetInfo] = useState(null);
+  const debugTargetRef = useRef(null);
   const [view, setView] = useState({ az: 0, alt: 25, fov: 90 });
   const [selectedId, setSelectedId] = useState(null);
   const [isLive, setIsLive] = useState(true);
@@ -860,18 +848,14 @@ function AppContent() {
     const trimmed = (overridePrompt ?? llmPrompt).trim();
     if (!trimmed) return;
 
-    if (mode === "ask" && !isSpaceQuery(trimmed)) {
-      setLlmResponse(
-        "AstroView Assistant only answers astronomy and space questions."
-      );
-      setLlmError("");
-      return;
-    }
-
     const prompt =
       mode === "summary"
         ? `Summarize the following text in concise bullet points.\n\n${trimmed}`
-        : `You are AstroView Assistant. Only answer astronomy and space topics. Provide safe viewing guidance. Never suggest looking at the Sun without proper eclipse glasses or solar filters.\n\n${trimmed}`;
+        : trimmed;
+    const systemPrompt =
+      mode === "summary"
+        ? ""
+        : "You are AstroView Assistant. Answer clearly and concisely. If the question involves astronomy or skywatching, include safe viewing guidance. Never suggest looking at the Sun without proper protection.";
 
     setLlmLoading(true);
     setOllamaStatus("Working");
@@ -893,37 +877,56 @@ function AppContent() {
     let timeoutId;
     try {
       controller = new AbortController();
-      timeoutId = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
-      const requestBody = {
-        model: OLLAMA_MODEL,
-        prompt,
-        stream: false
-      };
-      let result = await postOllamaGenerate(requestBody, controller.signal);
-      if (!result.ok) {
-        const errorText = result.error?.toLowerCase() || "";
-        let fallbackModel = "";
-        if (OLLAMA_MODEL.includes(":latest")) {
-          fallbackModel = OLLAMA_MODEL.replace(":latest", "");
+      timeoutId = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+
+      let responseText = "";
+      if (aiProvider === "ollama") {
+        const modelName = getAiModelName();
+        try {
+          responseText = await generateAiText({
+            prompt,
+            system: systemPrompt,
+            maxTokens: mode === "summary" ? 220 : 350,
+            signal: controller.signal,
+            model: modelName
+          });
+        } catch (err) {
+          const errorText = err?.message?.toLowerCase() || "";
+          let fallbackModel = "";
+          if (modelName.includes(":latest")) {
+            fallbackModel = modelName.replace(":latest", "");
+          }
+          if (!fallbackModel || errorText.includes("model")) {
+            const available = await fetchLocalOllamaModels(controller.signal);
+            fallbackModel =
+              available.find((name) => name === fallbackModel) ||
+              available[0] ||
+              fallbackModel;
+          }
+          if (fallbackModel && fallbackModel !== modelName) {
+            responseText = await generateAiText({
+              prompt,
+              system: systemPrompt,
+              maxTokens: mode === "summary" ? 220 : 350,
+              signal: controller.signal,
+              model: fallbackModel
+            });
+          } else {
+            throw err;
+          }
         }
-        if (!fallbackModel || errorText.includes("model")) {
-          const available = await fetchOllamaModels(controller.signal);
-          fallbackModel =
-            available.find((name) => name === fallbackModel) ||
-            available[0] ||
-            fallbackModel;
-        }
-        if (fallbackModel && fallbackModel !== requestBody.model) {
-          requestBody.model = fallbackModel;
-          result = await postOllamaGenerate(requestBody, controller.signal);
-        }
-      }
-      if (!result.ok) {
-        throw new Error(result.error || "Ollama request failed");
+      } else {
+        responseText = await generateAiText({
+          prompt,
+          system: systemPrompt,
+          maxTokens: mode === "summary" ? 220 : 350,
+          signal: controller.signal
+        });
       }
 
-      const responseText =
-        result.data?.response || result.data?.message?.content || "No response returned.";
+      if (!responseText) {
+        throw new Error("No response returned.");
+      }
       if (mode === "tips") {
         setNotifyTips(responseText);
       } else if (mode === "apod") {
@@ -939,25 +942,79 @@ function AppContent() {
     } catch (err) {
       setFeedback({
         tone: "error",
-        message: "Ollama request failed."
+        message: "AI request failed."
       });
       if (mode === "tips") {
-        setNotifyTips("Tips unavailable. Make sure Ollama is running and try again.");
+        setNotifyTips(`Tips unavailable. ${aiProviderHelp}`);
         setTipsStatus("error");
       }
-      setLlmError(
-        err?.name === "AbortError"
-          ? "Ollama request timed out. Try again or use a smaller prompt."
-          : err?.message?.includes("model")
-            ? `Model ${OLLAMA_MODEL} not found. Run: ollama pull ${OLLAMA_MODEL}.`
-            : "Ollama is not reachable. Make sure it is running on localhost:11434."
-      );
+      if (err?.name === "AbortError") {
+        setLlmError("AI request timed out. Try again or use a smaller prompt.");
+      } else if (aiProvider === "ollama" && err?.message?.toLowerCase().includes("model")) {
+        const modelName = getAiModelName();
+        setLlmError(`Model ${modelName} not found. Run: ollama pull ${modelName}.`);
+      } else {
+        setLlmError(err?.message || `AI assistant unavailable. ${aiProviderHelp}`);
+      }
       setOllamaStatus("Unavailable");
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
       setLlmLoading(false);
     }
   };
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === "`") {
+        setDebugHitTest((value) => !value);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (!debugHitTest) {
+      if (debugTargetRef.current) {
+        debugTargetRef.current.classList.remove("debug-hit-outline");
+        debugTargetRef.current = null;
+      }
+      setDebugTargetInfo(null);
+      return undefined;
+    }
+
+    const handlePointerMove = (event) => {
+      const element = document.elementFromPoint(event.clientX, event.clientY);
+      if (!element) return;
+
+      if (debugTargetRef.current && debugTargetRef.current !== element) {
+        debugTargetRef.current.classList.remove("debug-hit-outline");
+      }
+      if (element !== debugTargetRef.current) {
+        element.classList.add("debug-hit-outline");
+        debugTargetRef.current = element;
+      }
+
+      const styles = window.getComputedStyle(element);
+      setDebugTargetInfo({
+        tag: element.tagName.toLowerCase(),
+        id: element.id || "-",
+        className: typeof element.className === "string" ? element.className : "-",
+        zIndex: styles.zIndex || "auto",
+        position: styles.position || "static",
+        pointerEvents: styles.pointerEvents || "auto"
+      });
+    };
+
+    window.addEventListener("pointermove", handlePointerMove, { passive: true });
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      if (debugTargetRef.current) {
+        debugTargetRef.current.classList.remove("debug-hit-outline");
+        debugTargetRef.current = null;
+      }
+    };
+  }, [debugHitTest]);
 
   useEffect(() => {
     if (!selectedObject) {
@@ -1142,7 +1199,7 @@ function AppContent() {
             {!bannerCompact && (
               <button
                 onClick={handleToggleSensors}
-                className="ml-auto rounded-full border border-cyan-300/30 bg-cyan-500/20 px-3 py-1 text-[10px] text-cyan-100 hover:bg-cyan-500/30"
+                className="ml-auto btn-primary px-3 py-1"
               >
                 Tap to enable
               </button>
@@ -1156,7 +1213,7 @@ function AppContent() {
                   // ignore
                 }
               }}
-              className="ml-2 rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-slate-200 hover:bg-white/10"
+              className="ml-2 btn-tertiary px-2 py-1"
             >
               Dismiss
             </button>
@@ -1175,8 +1232,11 @@ function AppContent() {
         />
       )}
       <div className="absolute inset-0 pointer-events-none bg-aurora" />
-      <div className="absolute inset-0 pointer-events-none bg-stars opacity-40" />
-      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.12),_transparent_45%),radial-gradient(circle_at_bottom,_rgba(148,163,184,0.08),_transparent_55%)]" />
+      <div className="absolute inset-0 pointer-events-none bg-ambient" />
+      <div className="absolute inset-0 pointer-events-none bg-stars opacity-35" />
+      <div className="absolute inset-0 pointer-events-none bg-grid" />
+      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_top,_rgba(50,34,120,0.18),_transparent_45%),radial-gradient(circle_at_bottom,_rgba(28,20,70,0.14),_transparent_55%)]" />
+      <div className="absolute inset-0 pointer-events-none bg-vignette" />
       <div className="absolute inset-0 pointer-events-none z-10">
         <span className="meteor meteor-1" />
         <span className="meteor meteor-2" />
@@ -1202,11 +1262,11 @@ function AppContent() {
         )
       )}
 
-      <header className="absolute left-6 right-6 top-6 flex items-start justify-between gap-8 z-40">
-        <div className="space-y-3">
+      <header className="absolute left-6 right-6 top-6 flex items-start justify-between gap-8 z-[60] pointer-events-none">
+        <div className="space-y-3 pointer-events-auto">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center">
-              <Compass className="w-5 h-5 text-cyan-200" />
+            <div className="w-10 h-10 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center">
+              <Compass className="w-5 h-5 text-white" />
             </div>
             <div>
               <h1 className="text-lg font-semibold tracking-[0.2em] uppercase">
@@ -1241,7 +1301,7 @@ function AppContent() {
           </div>
         </div>
 
-        <div className="flex flex-col items-end gap-4 w-80">
+        <div className="flex flex-col items-end gap-4 w-80 pointer-events-auto">
           <div className="relative w-full">
             <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
             <input
@@ -1254,10 +1314,10 @@ function AppContent() {
                 }
               }}
               placeholder="Search objects"
-              className="w-full rounded-full bg-slate-900/80 border border-white/10 pl-9 pr-3 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/40"
+              className="w-full input-field pl-9 pr-3 py-2 text-xs placeholder:text-slate-500"
             />
             {matches.length > 0 && (
-              <div className="absolute mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/95 backdrop-blur shadow-[0_18px_45px_rgba(15,23,42,0.6)] z-50">
+              <div className="absolute mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/95 backdrop-blur shadow-[0_18px_45px_rgba(15,23,42,0.6)] z-50 panel-enter">
                 {matches.map((obj) => (
                   <button
                     key={obj.id}
@@ -1281,13 +1341,13 @@ function AppContent() {
           <div className="flex w-full gap-2">
             <button
               onClick={handleResetView}
-              className="flex-1 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[11px] text-slate-200 hover:bg-white/10"
+              className="flex-1 btn-tertiary px-3 py-2"
             >
               Reset View
             </button>
             <button
               onClick={() => setShowSatelliteView(true)}
-              className="flex-1 rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-[11px] text-amber-100 hover:bg-amber-300/20"
+              className="flex-1 btn-secondary px-3 py-2"
             >
               Satellite View
             </button>
@@ -1295,20 +1355,24 @@ function AppContent() {
           <div className="flex w-full gap-2">
             <button
               onClick={() => setViewMode((mode) => (mode === "360" ? "2d" : "360"))}
-              className="flex-1 rounded-full border border-cyan-400/30 bg-cyan-500/20 px-3 py-2 text-[11px] text-cyan-100 hover:bg-cyan-500/30"
+              className="flex-1 btn-secondary px-3 py-2"
               disabled={activeTab !== "sky"}
             >
               {viewMode === "360" ? "Switch to 2D" : "Switch to 360"}
             </button>
           </div>
           {/* Tab Switcher */}
-          <div className="flex w-full rounded-full border border-white/10 bg-slate-900/80 p-1">
+          <div className="flex w-full tab-bar">
             <button
               onClick={() => setActiveTab("sky")}
-              className={`flex-1 flex items-center justify-center gap-2 rounded-full px-3 py-2 text-[11px] transition-colors ${
-                activeTab === "sky"
-                  ? "bg-cyan-500/25 text-cyan-100 border border-cyan-400/30"
-                  : "text-slate-400 hover:text-slate-200"
+              style={{
+                "--tab-accent-bg": "rgba(112, 0, 255, 0.2)",
+                "--tab-accent-border": "rgba(112, 0, 255, 0.45)",
+                "--tab-accent-glow": "rgba(112, 0, 255, 0.3)",
+                "--tab-accent-line": "rgba(112, 0, 255, 0.9)"
+              }}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 tab-button ${
+                activeTab === "sky" ? "tab-button--active" : ""
               }`}
             >
               <Star className="w-3 h-3" />
@@ -1316,10 +1380,14 @@ function AppContent() {
             </button>
             <button
               onClick={() => setActiveTab("climate")}
-              className={`flex-1 flex items-center justify-center gap-2 rounded-full px-3 py-2 text-[11px] transition-colors ${
-                activeTab === "climate"
-                  ? "bg-emerald-500/25 text-emerald-100 border border-emerald-400/30"
-                  : "text-slate-400 hover:text-slate-200"
+              style={{
+                "--tab-accent-bg": "rgba(0, 255, 133, 0.2)",
+                "--tab-accent-border": "rgba(0, 255, 133, 0.45)",
+                "--tab-accent-glow": "rgba(0, 255, 133, 0.3)",
+                "--tab-accent-line": "rgba(0, 255, 133, 0.9)"
+              }}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 tab-button ${
+                activeTab === "climate" ? "tab-button--active" : ""
               }`}
             >
               <Globe2 className="w-3 h-3" />
@@ -1327,10 +1395,14 @@ function AppContent() {
             </button>
             <button
               onClick={() => setActiveTab("disaster")}
-              className={`flex-1 flex items-center justify-center gap-2 rounded-full px-3 py-2 text-[11px] transition-colors ${
-                activeTab === "disaster"
-                  ? "bg-red-500/25 text-red-100 border border-red-400/30"
-                  : "text-slate-400 hover:text-slate-200"
+              style={{
+                "--tab-accent-bg": "rgba(255, 69, 0, 0.2)",
+                "--tab-accent-border": "rgba(255, 69, 0, 0.45)",
+                "--tab-accent-glow": "rgba(255, 69, 0, 0.3)",
+                "--tab-accent-line": "rgba(255, 69, 0, 0.9)"
+              }}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 tab-button ${
+                activeTab === "disaster" ? "tab-button--active" : ""
               }`}
             >
               <Activity className="w-3 h-3" />
@@ -1338,10 +1410,14 @@ function AppContent() {
             </button>
             <button
               onClick={() => setActiveTab("agriculture")}
-              className={`flex-1 flex items-center justify-center gap-2 rounded-full px-3 py-2 text-[11px] transition-colors ${
-                activeTab === "agriculture"
-                  ? "bg-amber-500/25 text-amber-100 border border-amber-400/30"
-                  : "text-slate-400 hover:text-slate-200"
+              style={{
+                "--tab-accent-bg": "rgba(245, 158, 11, 0.2)",
+                "--tab-accent-border": "rgba(245, 158, 11, 0.4)",
+                "--tab-accent-glow": "rgba(245, 158, 11, 0.25)",
+                "--tab-accent-line": "rgba(245, 158, 11, 0.8)"
+              }}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 tab-button ${
+                activeTab === "agriculture" ? "tab-button--active" : ""
               }`}
             >
               <Leaf className="w-3 h-3" />
@@ -1353,16 +1429,14 @@ function AppContent() {
           </div>
           <button
             onClick={() => setShowNotifications(true)}
-            className="w-full rounded-full border border-cyan-400/30 bg-cyan-500/20 px-4 py-2 text-[11px] text-cyan-100 hover:bg-cyan-500/30"
+            className="w-full btn-notify px-4 py-2"
           >
             Live Notifications & Updates
           </button>
           <button
             onClick={handleToggleSensors}
-            className={`w-full rounded-full border px-4 py-2 text-[11px] text-slate-100 transition-colors ${
-              useSensors
-                ? "border-cyan-400/40 bg-cyan-500/25 hover:bg-cyan-500/35"
-                : "border-white/15 bg-white/5 hover:bg-white/10"
+            className={`w-full px-4 py-2 ${
+              useSensors ? "btn-secondary" : "btn-tertiary"
             }`}
           >
             {useSensors ? "Sensors Active" : "Manual Mode"}
@@ -1372,10 +1446,8 @@ function AppContent() {
             <div className="flex items-center gap-2">
               <button
                 onClick={toggleLearningMode}
-                className={`flex-1 flex items-center justify-center gap-2 rounded-full border px-3 py-2 text-[11px] transition-colors ${
-                  learningMode
-                    ? "border-purple-400/40 bg-purple-500/25 text-purple-100 hover:bg-purple-500/35"
-                    : "border-white/15 bg-white/5 text-slate-300 hover:bg-white/10"
+                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 ${
+                  learningMode ? "btn-secondary" : "btn-tertiary"
                 }`}
               >
                 <GraduationCap className="w-3 h-3" />
@@ -1383,7 +1455,7 @@ function AppContent() {
               </button>
               <button
                 onClick={() => setShowLessonsLibrary(true)}
-                className="flex items-center justify-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2 text-[11px] text-slate-300 hover:bg-white/10"
+                className="flex items-center justify-center gap-2 px-3 py-2 btn-tertiary"
               >
                 <Book className="w-3 h-3" />
                 Lessons
@@ -1392,7 +1464,7 @@ function AppContent() {
             {learningMode && activeTab === "sky" && (
               <button
                 onClick={() => setShowGuidedTour(true)}
-                className="w-full rounded-full border border-amber-400/30 bg-amber-500/20 px-4 py-2 text-[11px] text-amber-100 hover:bg-amber-500/30"
+                className="w-full btn-primary px-4 py-2"
               >
                 Start Guided Tour
               </button>
@@ -1408,7 +1480,7 @@ function AppContent() {
 
       {/* Climate Tab */}
       {activeTab === "climate" && (
-        <div className="absolute left-6 right-[360px] top-36 bottom-36 z-20 overflow-y-auto pb-6">
+        <div className="absolute left-6 right-[360px] top-36 bottom-36 z-20 overflow-y-auto pb-6 custom-scrollbar">
           <ClimateTab
             coords={coords}
             isActive={activeTab === "climate"}
@@ -1419,7 +1491,7 @@ function AppContent() {
 
       {/* Disaster Tab */}
       {activeTab === "disaster" && (
-        <div className="absolute left-6 right-[360px] top-36 bottom-36 z-20 overflow-y-auto pb-6">
+        <div className="absolute left-6 right-[360px] top-36 bottom-36 z-20 overflow-y-auto pb-6 custom-scrollbar">
           {coords && coords.lat !== undefined ? (
             <DisasterModule
               location={{ latitude: coords.lat, longitude: coords.lon }}
@@ -1428,7 +1500,7 @@ function AppContent() {
             />
           ) : (
             <div className="flex flex-col items-center justify-center h-full">
-              <div className="p-8 bg-black/40 backdrop-blur-lg rounded-2xl border border-white/10 text-center max-w-md">
+              <div className="p-8 panel-glass panel-hover rounded-2xl text-center max-w-md">
                 <span className="text-4xl mb-4 block">📍</span>
                 <h3 className="text-lg font-semibold text-white/90 mb-2">Location Required</h3>
                 <p className="text-sm text-white/50 mb-4">
@@ -1445,9 +1517,9 @@ function AppContent() {
 
       {/* Agriculture Tab */}
       {activeTab === "agriculture" && (
-        <div className="absolute left-6 right-[360px] top-36 bottom-36 z-20 overflow-y-auto pb-6">
+        <div className="absolute left-6 right-[360px] top-36 bottom-36 z-20 overflow-y-auto pb-6 custom-scrollbar">
           {coords && coords.lat !== undefined ? (
-            <div className="h-full bg-black/40 backdrop-blur-lg rounded-2xl border border-white/10">
+            <div className="h-full panel-glass panel-hover rounded-2xl">
               <AgricultureModule
                 coords={{ latitude: coords.lat, longitude: coords.lon }}
                 learningMode={learningMode}
@@ -1455,7 +1527,7 @@ function AppContent() {
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center h-full">
-              <div className="p-8 bg-black/40 backdrop-blur-lg rounded-2xl border border-white/10 text-center max-w-md">
+              <div className="p-8 panel-glass panel-hover rounded-2xl text-center max-w-md">
                 <span className="text-4xl mb-4 block">📍</span>
                 <h3 className="text-lg font-semibold text-white/90 mb-2">Location Required</h3>
                 <p className="text-sm text-white/50 mb-4">
@@ -1471,18 +1543,18 @@ function AppContent() {
       )}
 
       {/* Sky Tab Panels */}
-      <div className={`absolute left-6 bottom-36 w-80 space-y-5 z-20 max-h-[calc(100vh-260px)] overflow-y-auto pb-6 ${activeTab !== "sky" ? "hidden" : ""}`}>
-        <aside className="rounded-3xl panel-glass px-5 py-4">
+      <div className={`absolute left-6 bottom-36 w-80 space-y-6 z-20 max-h-[calc(100vh-260px)] overflow-y-auto pb-6 custom-scrollbar ${activeTab !== "sky" ? "hidden" : ""}`}>
+        <aside className="rounded-3xl panel-glass panel-hover px-6 py-5">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xs uppercase tracking-[0.3em] text-slate-400">
+            <h2 className="text-title">
               Sky Conditions
             </h2>
-            <span className="text-[10px] text-slate-500">Estimated</span>
+            <span className="text-label">Estimated</span>
           </div>
           <div className="space-y-3 text-xs text-slate-200">
             <div className="flex items-center justify-between">
               <span>Visibility</span>
-              <span className="text-slate-300">
+              <span className="text-value">
                 {skyConditions.vis.label}
               </span>
             </div>
@@ -1491,24 +1563,25 @@ function AppContent() {
             </div>
             <div className="flex items-center justify-between">
               <span>Moon Illumination</span>
-              <span className="text-slate-300">{skyConditions.moonPercent}%</span>
+              <span className="text-value">{skyConditions.moonPercent}%</span>
             </div>
             <div className="flex items-center justify-between">
               <span>Transparency</span>
-              <span className="text-slate-300">{skyConditions.transparency}</span>
+              <span className="text-value">{skyConditions.transparency}</span>
             </div>
             <div className="flex items-center justify-between">
               <span>Sun Altitude</span>
-              <span className="text-slate-300">{formatAngle(skyConditions.sunAlt)}</span>
+              <span className="text-value">{formatAngle(skyConditions.sunAlt)}</span>
             </div>
           </div>
         </aside>
-        <aside className="rounded-3xl panel-glass px-5 py-4">
+        <div className="surface-divider" />
+        <aside className="rounded-3xl panel-glass panel-hover px-6 py-5">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xs uppercase tracking-[0.3em] text-slate-400">
+            <h2 className="text-title">
               Object Inspector
             </h2>
-            <span className="text-[10px] text-slate-500">Live</span>
+            <span className="text-label">Live</span>
           </div>
           {selectedObject ? (
             <div className="space-y-3">
@@ -1516,30 +1589,30 @@ function AppContent() {
                 <div className="text-lg font-semibold text-slate-100">
                   {selectedObject.name}
                 </div>
-                <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">
+                <div className="text-label">
                   {selectedObject.type}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3 text-xs text-slate-300">
                 <div>
-                  <div className="text-[10px] uppercase text-slate-500">Azimuth</div>
-                  <div>{formatAngle(selectedObject.az)}</div>
+                  <div className="text-label">Azimuth</div>
+                  <div className="text-value">{formatAngle(selectedObject.az)}</div>
                 </div>
                 <div>
-                  <div className="text-[10px] uppercase text-slate-500">Altitude</div>
-                  <div>{formatAngle(selectedObject.alt)}</div>
+                  <div className="text-label">Altitude</div>
+                  <div className="text-value">{formatAngle(selectedObject.alt)}</div>
                 </div>
                 <div>
-                  <div className="text-[10px] uppercase text-slate-500">Magnitude</div>
-                  <div>
+                  <div className="text-label">Magnitude</div>
+                  <div className="text-value">
                     {selectedObject.mag !== null && selectedObject.mag !== undefined
                       ? selectedObject.mag.toFixed(2)
                       : "--"}
                   </div>
                 </div>
                 <div>
-                  <div className="text-[10px] uppercase text-slate-500">Constellation</div>
-                  <div>{selectedConstellation || "--"}</div>
+                  <div className="text-label">Constellation</div>
+                  <div className="text-value">{selectedConstellation || "--"}</div>
                 </div>
               </div>
             </div>
@@ -1567,17 +1640,18 @@ function AppContent() {
           />
         )}
 
-        <aside className="rounded-3xl panel-glass px-5 py-4">
+        <div className="surface-divider" />
+        <aside className="rounded-3xl panel-glass panel-hover px-6 py-5">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xs uppercase tracking-[0.3em] text-slate-400">
+            <h2 className="text-title">
               AstroView Assistant
             </h2>
-            <span className="text-[10px] text-slate-500">
+            <span className="text-label">
               {selectedObject ? "Auto" : "Manual"}
             </span>
           </div>
           <div className="text-[10px] text-slate-500 mb-2">
-            Ollama: {ollamaStatus}
+            AI ({aiProviderLabel}): {ollamaStatus}
           </div>
           <textarea
             value={llmPrompt}
@@ -1589,14 +1663,14 @@ function AppContent() {
             <button
               onClick={() => runOllama("ask")}
               disabled={llmLoading}
-              className="flex-1 rounded-full border border-white/10 bg-cyan-400/20 px-3 py-2 text-xs text-cyan-100 hover:bg-cyan-400/30 disabled:opacity-50"
+              className="flex-1 btn-primary px-3 py-2 disabled:opacity-50"
             >
               {llmLoading ? "Thinking..." : "Ask"}
             </button>
             <button
               onClick={() => runOllama("summary")}
               disabled={llmLoading}
-              className="flex-1 rounded-full border border-white/10 bg-white/10 px-3 py-2 text-xs text-slate-200 hover:bg-white/20 disabled:opacity-50"
+              className="flex-1 btn-tertiary px-3 py-2 disabled:opacity-50"
             >
               Summarize
             </button>
@@ -1615,11 +1689,11 @@ function AppContent() {
         </aside>
       </div>
 
-      <footer className="absolute bottom-6 left-6 right-6 flex items-center justify-between z-20">
+      <footer className="absolute bottom-6 left-6 right-6 flex items-center justify-between z-[60] pointer-events-auto">
         <div className="flex items-center gap-4">
           <button
             onClick={() => setIsLive((value) => !value)}
-            className="flex items-center gap-2 rounded-full border border-amber-200/20 bg-amber-200/10 px-4 py-2 text-xs text-amber-50 hover:bg-amber-200/20"
+            className="flex items-center gap-2 btn-secondary px-4 py-2"
           >
             {isLive ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
             {isLive ? "Pause" : "Resume"}
@@ -1635,7 +1709,7 @@ function AppContent() {
       </footer>
 
       {apodImage && nasaApod && (
-        <div className="absolute bottom-6 right-6 w-[320px] rounded-2xl panel-glass overflow-hidden z-20">
+        <div className="absolute bottom-6 right-6 w-[320px] rounded-2xl panel-glass panel-hover overflow-hidden z-20">
           <div className="h-36 w-full bg-slate-950">
             <img
               src={apodImage}
@@ -1645,7 +1719,7 @@ function AppContent() {
             />
           </div>
           <div className="px-4 py-3">
-            <div className="text-[10px] uppercase tracking-[0.3em] text-slate-400">
+            <div className="text-label">
               APOD Spotlight
             </div>
             <div className="text-sm font-semibold text-slate-100">
@@ -1657,11 +1731,11 @@ function AppContent() {
       )}
 
       {showNotifications && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm">
-          <div className="absolute inset-x-6 top-10 bottom-10 rounded-3xl border border-white/10 bg-slate-950/90 p-6 overflow-auto">
+        <div className="fixed inset-0 z-[85] bg-slate-950/70 backdrop-blur-sm">
+          <div className="absolute inset-x-6 top-10 bottom-10 rounded-3xl border border-white/10 bg-slate-950/90 p-6 overflow-auto custom-scrollbar">
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h2 className="text-lg font-semibold tracking-[0.2em] uppercase">
+                <h2 className="text-title">
                   AstroView Alerts
                 </h2>
                 <p className="text-xs text-slate-400">
@@ -1677,8 +1751,8 @@ function AppContent() {
             </div>
 
             <div className="grid gap-6 lg:grid-cols-2">
-              <div className="rounded-2xl panel-glass p-4">
-                <h3 className="text-xs uppercase tracking-[0.3em] text-slate-400 mb-4">
+              <div className="rounded-2xl panel-glass panel-hover p-4">
+                <h3 className="text-title mb-4">
                   Local Events
                 </h3>
                 <div className="space-y-3 text-xs text-slate-200">
@@ -1710,7 +1784,7 @@ function AppContent() {
                 <div className="mt-4 flex items-center justify-between">
                   <button
                     onClick={handleGenerateTips}
-                    className="rounded-full border border-cyan-400/30 bg-cyan-500/20 px-3 py-2 text-xs text-cyan-100 hover:bg-cyan-500/30"
+                    className="btn-primary px-3 py-2"
                   >
                     Generate viewing tips
                   </button>
@@ -1731,15 +1805,15 @@ function AppContent() {
                 )}
               </div>
 
-              <div className="rounded-2xl panel-glass p-4">
-                <h3 className="text-xs uppercase tracking-[0.3em] text-slate-400 mb-4">
+              <div className="rounded-2xl panel-glass panel-hover p-4">
+                <h3 className="text-title mb-4">
                   Global Updates
                 </h3>
                 <div className="mb-3 text-[11px] text-slate-400 flex items-center justify-between">
                   <span>{nasaStatus}</span>
                   <button
                     onClick={loadNasa}
-                    className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-slate-200 hover:bg-white/10"
+                    className="btn-tertiary px-2 py-1"
                   >
                     Refresh
                   </button>
@@ -1750,7 +1824,7 @@ function AppContent() {
                 <div className="space-y-4 text-xs text-slate-200">
                   {nasaApod ? (
                     <div className="w-full rounded-xl px-2 py-2 text-left bg-white/5">
-                      <div className="text-[11px] uppercase text-slate-500">
+                      <div className="text-label">
                         NASA APOD
                       </div>
                       <div className="font-semibold">{nasaApod.title}</div>
@@ -1758,7 +1832,7 @@ function AppContent() {
                       <div className="mt-2 flex items-center justify-between">
                         <button
                           onClick={handleApodSummary}
-                          className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[10px] text-slate-200 hover:bg-white/20"
+                          className="btn-tertiary px-3 py-1"
                         >
                           Explain for public
                         </button>
@@ -1781,7 +1855,7 @@ function AppContent() {
                   )}
 
                   <div>
-                    <div className="text-[11px] uppercase text-slate-500">
+                    <div className="text-label">
                       Recent Solar Flares
                     </div>
                     {nasaEvents.length ? (
@@ -1813,11 +1887,11 @@ function AppContent() {
       )}
 
       {showSatelliteView && (
-        <div className="fixed inset-0 z-50 bg-slate-950">
-          <div className="absolute inset-x-6 top-10 bottom-10 rounded-3xl border border-white/10 bg-slate-950/95 p-6 overflow-auto">
+        <div className="fixed inset-0 z-[80] bg-slate-950">
+          <div className="absolute inset-x-6 top-10 bottom-10 rounded-3xl border border-white/10 bg-slate-950/95 p-6 overflow-auto custom-scrollbar">
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h2 className="text-lg font-semibold tracking-[0.2em] uppercase">
+                <h2 className="text-title">
                   Satellite View
                 </h2>
                 <p className="text-xs text-slate-400">
@@ -1857,37 +1931,37 @@ function AppContent() {
                 <button
                   onClick={handleCenterSatellite}
                   disabled={!activeSatellite}
-                  className="w-full rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-left text-sm text-amber-100 hover:bg-amber-300/20 disabled:opacity-50"
+                  className="w-full btn-secondary px-4 py-3 text-left text-sm disabled:opacity-50"
                 >
                   Center on Selected
                 </button>
               </div>
 
-              <div className="rounded-3xl panel-glass p-6">
+              <div className="rounded-3xl panel-glass panel-hover p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm uppercase tracking-[0.3em] text-slate-400">
+                  <h3 className="text-title">
                     {satelliteTarget === "jwst" ? "JWST" : "Hubble"}
                   </h3>
-                  <span className="text-[11px] text-slate-500">
+                  <span className="text-label">
                     {activeSatellite ? "Live" : "Unavailable"}
                   </span>
                 </div>
                 {activeSatellite ? (
                   <div className="grid gap-4 text-sm text-slate-200 md:grid-cols-2">
                     <div>
-                      <div className="text-[11px] uppercase text-slate-500">Azimuth</div>
+                      <div className="text-label">Azimuth</div>
                       <div>{formatAngle(activeSatellite.az)}</div>
                     </div>
                     <div>
-                      <div className="text-[11px] uppercase text-slate-500">Altitude</div>
+                      <div className="text-label">Altitude</div>
                       <div>{formatAngle(activeSatellite.alt)}</div>
                     </div>
                     <div>
-                      <div className="text-[11px] uppercase text-slate-500">Visibility</div>
+                      <div className="text-label">Visibility</div>
                       <div>{activeSatellite.alt > 0 ? "Above horizon" : "Below horizon"}</div>
                     </div>
                     <div>
-                      <div className="text-[11px] uppercase text-slate-500">Next Step</div>
+                      <div className="text-label">Next Step</div>
                       <div>Use Center to align the sky view</div>
                     </div>
                   </div>
@@ -1897,27 +1971,23 @@ function AppContent() {
                   </div>
                 )}
                 <div className="mt-6">
-                  <div className="text-[11px] uppercase tracking-[0.3em] text-slate-400 mb-3">
+                  <div className="text-label mb-3">
                     Latest Telescope Feed
                   </div>
                   <div className="mb-3 flex items-center gap-2 text-[11px]">
                     <button
                       onClick={() => setTelescopeFeedMode("live")}
-                      className={`rounded-full border px-3 py-1 text-[10px] uppercase tracking-[0.2em] ${
-                        telescopeFeedMode === "live"
-                          ? "border-cyan-400/40 bg-cyan-500/25 text-cyan-100"
-                          : "border-white/10 bg-white/5 text-slate-300"
-                      }`}
+                      className={`${
+                        telescopeFeedMode === "live" ? "btn-secondary" : "btn-tertiary"
+                      } px-3 py-1`}
                     >
                       Live Feed
                     </button>
                     <button
                       onClick={() => setTelescopeFeedMode("image")}
-                      className={`rounded-full border px-3 py-1 text-[10px] uppercase tracking-[0.2em] ${
-                        telescopeFeedMode === "image"
-                          ? "border-amber-300/40 bg-amber-300/20 text-amber-100"
-                          : "border-white/10 bg-white/5 text-slate-300"
-                      }`}
+                      className={`${
+                        telescopeFeedMode === "image" ? "btn-secondary" : "btn-tertiary"
+                      } px-3 py-1`}
                     >
                       Image Feed
                     </button>
@@ -1932,7 +2002,7 @@ function AppContent() {
                       </span>
                       <button
                         onClick={loadTelescopeFeeds}
-                        className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-slate-200 hover:bg-white/10"
+                        className="btn-tertiary px-2 py-1"
                       >
                         Refresh
                       </button>
@@ -1983,7 +2053,7 @@ function AppContent() {
                           }
                           target="_blank"
                           rel="noreferrer"
-                          className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] text-slate-200 hover:bg-white/10"
+                          className="btn-tertiary px-3 py-1"
                         >
                           Open in YouTube
                         </a>
@@ -2058,6 +2128,28 @@ function AppContent() {
             }}
             onClose={() => setShowGuidedTour(false)}
           />
+        </div>
+      )}
+
+      {debugHitTest && (
+        <div className="fixed right-4 top-4 z-[70] pointer-events-auto rounded-xl border border-amber-400/40 bg-slate-950/90 px-3 py-2 text-[11px] text-amber-100 shadow-lg">
+          <div className="text-[10px] uppercase tracking-[0.2em] text-amber-300">
+            Hit Test
+          </div>
+          <div className="mt-1 space-y-1">
+            <div>Target: {debugTargetInfo?.tag || "-"}</div>
+            <div>ID: {debugTargetInfo?.id || "-"}</div>
+            <div>Class: {debugTargetInfo?.className || "-"}</div>
+            <div>Z: {debugTargetInfo?.zIndex || "auto"}</div>
+            <div>Pos: {debugTargetInfo?.position || "-"}</div>
+            <div>PE: {debugTargetInfo?.pointerEvents || "-"}</div>
+          </div>
+          <button
+            onClick={() => setDebugHitTest(false)}
+            className="mt-2 w-full rounded-full border border-amber-300/30 bg-amber-400/10 px-2 py-1 text-[10px] text-amber-100 hover:bg-amber-400/20"
+          >
+            Disable (or press `)
+          </button>
         </div>
       )}
 

@@ -135,7 +135,7 @@ const EarthquakeFeed = ({ earthquakes, loading, risk }) => {
   
   if (loading) {
     return (
-      <div className="bg-black/40 backdrop-blur-lg rounded-xl border border-white/10 p-4">
+      <div className="panel-glass panel-hover rounded-xl p-4">
         <div className="flex items-center gap-3 mb-4">
           <span className="text-2xl">🌍</span>
           <h3 className="text-sm font-semibold text-white/90">Earthquake Feed</h3>
@@ -156,7 +156,7 @@ const EarthquakeFeed = ({ earthquakes, loading, risk }) => {
   }).slice(0, 8);
 
   return (
-    <div className="bg-black/40 backdrop-blur-lg rounded-xl border border-white/10 p-4">
+    <div className="panel-glass panel-hover rounded-xl p-4">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <span className="text-2xl">🌍</span>
@@ -402,13 +402,13 @@ const DisasterModule = ({ location, climateData, onClose }) => {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="text-2xl">🛡️</span>
           <div>
-            <h2 className="text-lg font-bold text-white/90">Disaster Intelligence</h2>
+            <h2 className="text-title">Disaster Intelligence</h2>
             <p className="text-xs text-white/50">
               Real-time hazard monitoring • {location?.latitude?.toFixed(2)}°, {location?.longitude?.toFixed(2)}°
             </p>
@@ -424,9 +424,7 @@ const DisasterModule = ({ location, climateData, onClose }) => {
           <button
             onClick={refresh}
             disabled={loading}
-            className={`p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors ${
-              loading ? 'animate-spin' : ''
-            }`}
+            className={`p-2 rounded-lg btn-tertiary ${loading ? 'animate-spin' : ''}`}
           >
             <svg className="w-4 h-4 text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
@@ -436,7 +434,7 @@ const DisasterModule = ({ location, climateData, onClose }) => {
           {onClose && (
             <button
               onClick={onClose}
-              className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+              className="p-2 rounded-lg btn-tertiary"
             >
               <svg className="w-4 h-4 text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -476,7 +474,7 @@ const DisasterModule = ({ location, climateData, onClose }) => {
       )}
 
       {/* Detail panels - 2x2 grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <EarthquakeFeed 
           earthquakes={earthquakes} 
           loading={loading}

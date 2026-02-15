@@ -184,7 +184,7 @@ export default function AgricultureModule({ coords, learningMode = false }) {
         <p className="text-sm text-center mb-4">{error}</p>
         <button
           onClick={refresh}
-          className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm transition-colors"
+          className="btn-secondary px-4 py-2 text-sm"
         >
           Retry
         </button>
@@ -200,10 +200,10 @@ export default function AgricultureModule({ coords, learningMode = false }) {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <h2 className="text-title flex items-center gap-2">
               🌾 <LearnableItem term="agriculture" learningMode={learningMode}>Agriculture Intelligence</LearnableItem>
             </h2>
-            <p className="text-xs text-white/40">
+            <p className="text-label">
               {data.location.latitude.toFixed(2)}°, {data.location.longitude.toFixed(2)}°
             </p>
           </div>
@@ -213,7 +213,7 @@ export default function AgricultureModule({ coords, learningMode = false }) {
             <button
               onClick={refresh}
               disabled={loading}
-              className="p-2 rounded-lg hover:bg-white/10 text-white/60 hover:text-white transition-colors disabled:opacity-50"
+              className="p-2 rounded-lg btn-tertiary disabled:opacity-50"
               title="Refresh data"
             >
               <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -224,7 +224,7 @@ export default function AgricultureModule({ coords, learningMode = false }) {
             {/* AI Overview button */}
             <button
               onClick={() => handleIndicatorClick('overview')}
-              className="px-3 py-1.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 text-xs font-medium transition-colors border border-purple-500/30"
+              className="btn-secondary px-3 py-1.5"
             >
               🤖 AI Overview
             </button>
@@ -320,19 +320,19 @@ export default function AgricultureModule({ coords, learningMode = false }) {
         
         {/* Current conditions summary */}
         <div className="p-3 rounded-xl bg-white/5 border border-white/10">
-          <div className="text-xs text-white/40 mb-2">Current Conditions</div>
+          <div className="text-label mb-2">Current Conditions</div>
           <div className="grid grid-cols-3 gap-2 text-center">
             <div>
-              <div className="text-lg font-bold text-white">{(data.conditions.temperature ?? 0).toFixed(1)}°C</div>
-              <div className="text-[10px] text-white/40">Temperature</div>
+              <div className="text-value">{(data.conditions.temperature ?? 0).toFixed(1)}°C</div>
+              <div className="text-label">Temperature</div>
             </div>
             <div>
-              <div className="text-lg font-bold text-white">{data.conditions.humidity ?? 0}%</div>
-              <div className="text-[10px] text-white/40">Humidity</div>
+              <div className="text-value">{data.conditions.humidity ?? 0}%</div>
+              <div className="text-label">Humidity</div>
             </div>
             <div>
-              <div className="text-lg font-bold text-white">{(data.conditions.windSpeed ?? 0).toFixed(1)}</div>
-              <div className="text-[10px] text-white/40">Wind (km/h)</div>
+              <div className="text-value">{(data.conditions.windSpeed ?? 0).toFixed(1)}</div>
+              <div className="text-label">Wind (km/h)</div>
             </div>
           </div>
           
@@ -351,17 +351,17 @@ export default function AgricultureModule({ coords, learningMode = false }) {
         
         {/* 30-day rainfall summary */}
         <div className="p-3 rounded-xl bg-white/5 border border-white/10">
-          <div className="text-xs text-white/40 mb-2">30-Day Precipitation</div>
+          <div className="text-label mb-2">30-Day Precipitation</div>
           <div className="flex items-end justify-between">
             <div>
-              <div className="text-2xl font-bold text-blue-400">{(data.precipitation.last30Days ?? 0).toFixed(1)}</div>
-              <div className="text-[10px] text-white/40">mm total</div>
+              <div className="text-value text-blue-400">{(data.precipitation.last30Days ?? 0).toFixed(1)}</div>
+              <div className="text-label">mm total</div>
             </div>
             <div className="text-right">
               <div className={`text-lg font-bold ${(data.rainfallAnomaly?.percentDeviation ?? 0) > 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
                 {(data.rainfallAnomaly?.percentDeviation ?? 0) > 0 ? '+' : ''}{(data.rainfallAnomaly?.percentDeviation ?? 0).toFixed(0)}%
               </div>
-              <div className="text-[10px] text-white/40">vs normal ({(data.normals.monthlyPrecipitation ?? 0).toFixed(0)}mm)</div>
+              <div className="text-label">vs normal ({(data.normals.monthlyPrecipitation ?? 0).toFixed(0)}mm)</div>
             </div>
           </div>
         </div>
@@ -393,23 +393,6 @@ export default function AgricultureModule({ coords, learningMode = false }) {
         />
       )}
       
-      {/* Custom scrollbar styles */}
-      <style jsx>{`
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 6px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: rgba(255,255,255,0.05);
-          border-radius: 3px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: rgba(255,255,255,0.2);
-          border-radius: 3px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: rgba(255,255,255,0.3);
-        }
-      `}</style>
     </div>
   );
 }

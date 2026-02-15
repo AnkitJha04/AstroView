@@ -166,7 +166,7 @@ export const getSatelliteObjects = (time, location, tleList, limit = 20) => {
       az: wrap360(radToDeg(lookAngles.azimuth)),
       alt: radToDeg(lookAngles.elevation),
       mag: null,
-      color: "#e2e8f0"
+      color: "#7000ff"
     };
   });
 };

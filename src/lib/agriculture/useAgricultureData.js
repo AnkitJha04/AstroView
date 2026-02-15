@@ -19,6 +19,7 @@ import {
   calculateHeatStress,
   calculateAgriculturalStabilityIndex
 } from './agricultureRiskEngine';
+import { generateAiText } from '../ai/aiClient';
 
 // Cache duration in milliseconds (10 minutes)
 const CACHE_DURATION = 10 * 60 * 1000;
@@ -387,29 +388,17 @@ export function useAgricultureExplainer(agricultureData) {
       // Build context for AI
       const context = buildExplanationContext(agricultureData, topic);
       
-      // Call Ollama API
-      const response = await fetch('http://localhost:11434/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'llama3.1:latest',
-          prompt: context.prompt,
-          stream: false,
-          options: {
-            temperature: 0.7,
-            num_predict: 300
-          }
-        })
+      const text = await generateAiText({
+        prompt: context.prompt,
+        temperature: 0.7,
+        maxTokens: 300
       });
-      
-      if (!response.ok) {
+      if (!text) {
         throw new Error('AI service unavailable');
       }
-      
-      const result = await response.json();
       setExplanation({
         topic,
-        text: result.response,
+        text,
         timestamp: Date.now()
       });
       
@@ -455,17 +444,17 @@ Agricultural conditions:
 `;
 
   const topicPrompts = {
-    overview: `You are an agricultural scientist. Given these conditions:\n${baseContext}\n\nProvide a brief (2-3 sentences), professional assessment of current agricultural conditions. Focus on the most critical factors for crop health. Be specific and data-driven.`,
+    overview: `You are an agricultural scientist. Given these conditions:\n${baseContext}\n\nProvide a brief assessment in 2-3 short lines. Focus on the most critical factors for crop health. Be specific and data-driven.`,
     
-    moisture: `You are a soil scientist. Given these conditions:\n${baseContext}\n\nExplain the current soil moisture situation in 2-3 sentences. Discuss what the soil moisture proxy score means for plant water availability and root zone conditions.`,
+    moisture: `You are a soil scientist. Given these conditions:\n${baseContext}\n\nExplain the current soil moisture situation in 2-3 short lines. Discuss what the soil moisture proxy score means for plant water availability and root zone conditions.`,
     
-    drought: `You are an agricultural meteorologist. Given these conditions:\n${baseContext}\n\nAssess the current drought risk in 2-3 sentences. Explain the key contributing factors and potential timeline for improvement or worsening.`,
+    drought: `You are an agricultural meteorologist. Given these conditions:\n${baseContext}\n\nAssess the current drought risk in 2-3 short lines. Explain the key contributing factors and potential timeline for improvement or worsening.`,
     
-    heatStress: `You are a crop physiologist. Given these conditions:\n${baseContext}\n\nExplain the heat stress situation in 2-3 sentences. Discuss how current conditions affect plant metabolism, transpiration, and potential crop damage.`,
+    heatStress: `You are a crop physiologist. Given these conditions:\n${baseContext}\n\nExplain the heat stress situation in 2-3 short lines. Discuss how current conditions affect plant metabolism, transpiration, and potential crop damage.`,
     
-    stability: `You are an agricultural risk analyst. Given these conditions:\n${baseContext}\n\nInterpret the Agricultural Stability Index score in 2-3 sentences. Explain what this composite indicator means for overall farming conditions and risk management.`,
+    stability: `You are an agricultural risk analyst. Given these conditions:\n${baseContext}\n\nInterpret the Agricultural Stability Index score in 2-3 short lines. Explain what this composite indicator means for overall farming conditions and risk management.`,
     
-    rainfall: `You are a hydrologist. Given these conditions:\n${baseContext}\n\nAnalyze the rainfall patterns in 2-3 sentences. Discuss how current precipitation compares to seasonal norms and implications for water resources.`
+    rainfall: `You are a hydrologist. Given these conditions:\n${baseContext}\n\nAnalyze the rainfall patterns in 2-3 short lines. Discuss how current precipitation compares to seasonal norms and implications for water resources.`
   };
   
   return {

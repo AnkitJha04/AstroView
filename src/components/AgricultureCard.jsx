@@ -117,10 +117,8 @@ export default function AgricultureCard({
     <div
       className={`
         relative overflow-hidden rounded-xl
-        bg-gradient-to-br from-white/10 to-white/5
-        backdrop-blur-md border border-white/10
+        panel-glass panel-hover
         transition-all duration-300 cursor-pointer
-        hover:border-white/20 hover:shadow-lg
         ${compact ? 'p-3' : 'p-4'}
       `}
       onClick={onClick}
@@ -157,7 +155,7 @@ export default function AgricultureCard({
           {/* Score in center */}
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <span
-              className="text-lg font-bold font-mono"
+              className="text-lg font-bold font-mono text-value"
               style={{ color: cardColor }}
             >
               {(score ?? 0).toFixed(0)}
@@ -197,7 +195,7 @@ export default function AgricultureCard({
       {/* Factor breakdown */}
       {factors.length > 0 && !compact && (
         <div className="mt-4 pt-3 border-t border-white/10">
-          <div className="text-xs text-white/40 mb-2">Contributing Factors</div>
+          <div className="text-label mb-2">Contributing Factors</div>
           {factors.map((factor, idx) => (
             <FactorBar
               key={idx}

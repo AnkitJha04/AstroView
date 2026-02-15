@@ -29,9 +29,11 @@ import {
   getAqiLevel,
   calculateRainDeficit
 } from "../lib/climate/climateService";
-
-const OLLAMA_BASE_URL = "http://localhost:11434";
-const OLLAMA_MODEL = import.meta.env.VITE_OLLAMA_MODEL || "llama3.1:latest";
+import {
+  generateAiText,
+  getAiProviderHelp,
+  getAiProviderLabel
+} from "../lib/ai/aiClient";
 
 /**
  * Simple inline SVG chart for 7-day temperature trend
@@ -134,14 +136,14 @@ function TemperatureChart({ dates, tempMax, tempMin }) {
             .join(" ")}
           Z
         `}
-        fill="rgba(56, 189, 248, 0.1)"
+        fill="rgba(0, 255, 133, 0.08)"
       />
 
       {/* Max temperature line */}
       <path
         d={createPath(tempMax)}
         fill="none"
-        stroke="#f59e0b"
+        stroke="#ffb347"
         strokeWidth={2}
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -151,7 +153,7 @@ function TemperatureChart({ dates, tempMax, tempMin }) {
       <path
         d={createPath(tempMin)}
         fill="none"
-        stroke="#38bdf8"
+        stroke="#00ff85"
         strokeWidth={2}
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -165,7 +167,7 @@ function TemperatureChart({ dates, tempMax, tempMin }) {
             cx={xScale(i)}
             cy={yScale(temp)}
             r={3}
-            fill="#f59e0b"
+            fill="#ffb347"
           />
         ) : null
       )}
@@ -176,18 +178,18 @@ function TemperatureChart({ dates, tempMax, tempMin }) {
             cx={xScale(i)}
             cy={yScale(temp)}
             r={3}
-            fill="#38bdf8"
+            fill="#00ff85"
           />
         ) : null
       )}
 
       {/* Legend */}
       <g transform={`translate(${padding.left}, 8)`}>
-        <circle cx={0} cy={0} r={3} fill="#f59e0b" />
+        <circle cx={0} cy={0} r={3} fill="#ffb347" />
         <text x={8} y={3} className="fill-slate-400 text-[9px]">
           Max
         </text>
-        <circle cx={40} cy={0} r={3} fill="#38bdf8" />
+        <circle cx={40} cy={0} r={3} fill="#00ff85" />
         <text x={48} y={3} className="fill-slate-400 text-[9px]">
           Min
         </text>
@@ -211,11 +213,7 @@ function CloudOverlayPanel({ cloudCover, onToggle, isVisible, opacity, onOpacity
         />
         <button
           onClick={onToggle}
-          className={`px-3 py-2 rounded-full text-[10px] uppercase tracking-wider border transition-colors ${
-            isVisible
-              ? "border-cyan-400/40 bg-cyan-500/25 text-cyan-100"
-              : "border-white/10 bg-white/5 text-slate-300"
-          }`}
+          className={`${isVisible ? "btn-secondary" : "btn-tertiary"} px-3 py-2`}
         >
           {isVisible ? "Hide Overlay" : "Show Overlay"}
         </button>
@@ -323,6 +321,8 @@ export default function ClimateTab({ coords, isActive, onExplainRequest, showEdu
   const [aiExplanation, setAiExplanation] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
+  const aiProviderLabel = getAiProviderLabel();
+  const aiProviderHelp = getAiProviderHelp();
 
   const aqiInfo = useMemo(
     () => getAqiLevel(airQuality?.usAqi),
@@ -357,34 +357,24 @@ Climate Status: ${climateStatus.status} - ${climateStatus.detail}
 Active Alerts: ${alerts.length > 0 ? alerts.map((a) => a.name).join(", ") : "None"}
     `.trim();
 
-    const prompt = `As a climate scientist, explain this current weather and climate status in simple terms for the general public. Include any health or safety recommendations. Be concise (3-5 sentences):\n\n${summary}`;
+    const prompt = `As a climate scientist, explain this current weather and climate status in simple terms for the general public. Include any health or safety recommendations. Provide 3-5 short lines:\n\n${summary}`;
 
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-      const res = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: OLLAMA_MODEL,
-          prompt,
-          stream: false
-        }),
+      const response = await generateAiText({
+        prompt,
+        maxTokens: 220,
         signal: controller.signal
       });
-
       clearTimeout(timeoutId);
-
-      if (!res.ok) throw new Error("Ollama request failed");
-
-      const data = await res.json();
-      setAiExplanation(data.response || "No explanation generated.");
+      setAiExplanation(response || "No explanation generated.");
     } catch (err) {
       if (err.name === "AbortError") {
         setAiError("Request timed out. Try again.");
       } else {
-        setAiError("AI assistant unavailable. Make sure Ollama is running.");
+        setAiError(err?.message || `AI assistant unavailable. ${aiProviderHelp}`);
       }
     } finally {
       setAiLoading(false);
@@ -394,7 +384,7 @@ Active Alerts: ${alerts.length > 0 ? alerts.map((a) => a.name).join(", ") : "Non
   if (!isActive) return null;
 
   return (
-    <div className="space-y-4 animate-in fade-in duration-300">
+    <div className="space-y-6 animate-in fade-in duration-300">
       {/* Header Status */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -432,7 +422,7 @@ Active Alerts: ${alerts.length > 0 ? alerts.map((a) => a.name).join(", ") : "Non
       )}
 
       {/* Main Climate Dashboard */}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-6 md:grid-cols-2">
         {/* Climate Overview */}
         <ClimateCard
           title="Climate Overview"
@@ -548,10 +538,16 @@ Active Alerts: ${alerts.length > 0 ? alerts.map((a) => a.name).join(", ") : "Non
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-6 text-center">
-              <div className="w-12 h-12 rounded-full bg-green-500/10 border border-green-400/20 flex items-center justify-center mb-3">
-                <Eye className="w-5 h-5 text-green-400" />
+              <div
+                className="w-12 h-12 rounded-full border flex items-center justify-center mb-3"
+                style={{
+                  backgroundColor: "rgba(0, 255, 133, 0.08)",
+                  borderColor: "rgba(0, 255, 133, 0.35)"
+                }}
+              >
+                <Eye className="w-5 h-5" style={{ color: "var(--accent-climate)" }} />
               </div>
-              <div className="text-[11px] text-slate-400">
+              <div className="text-[11px]" style={{ color: "var(--accent-climate)" }}>
                 No severe weather alerts
               </div>
               <div className="text-[10px] text-slate-500">
@@ -583,14 +579,14 @@ Active Alerts: ${alerts.length > 0 ? alerts.map((a) => a.name).join(", ") : "Non
         {/* AI Climate Explainer */}
         <ClimateCard
           title="AI Climate Explainer"
-          subtitle="Powered by Ollama"
+          subtitle={`Powered by ${aiProviderLabel}`}
           icon={Sparkles}
           className="md:col-span-2"
           headerAction={
             <button
               onClick={handleExplainClimate}
               disabled={aiLoading || !weather}
-              className="px-3 py-1.5 rounded-full text-[10px] uppercase tracking-wider border border-cyan-400/30 bg-cyan-500/20 text-cyan-100 hover:bg-cyan-500/30 disabled:opacity-50 transition-colors"
+              className="btn-secondary px-3 py-1.5 disabled:opacity-50"
             >
               {aiLoading ? "Analyzing..." : "Explain Climate Status"}
             </button>
@@ -623,7 +619,7 @@ Active Alerts: ${alerts.length > 0 ? alerts.map((a) => a.name).join(", ") : "Non
                 Click "Explain Climate Status" to get an AI-powered summary
               </div>
               <div className="text-[10px] text-slate-500 mt-1">
-                Requires Ollama running on localhost:11434
+                {aiProviderHelp}
               </div>
             </div>
           )}

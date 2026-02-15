@@ -14,21 +14,21 @@ export default function ClimateCard({
 }) {
   return (
     <div
-      className={`rounded-3xl panel-glass px-5 py-4 transition-all duration-300 ${className}`}
+      className={`rounded-3xl panel-glass panel-hover px-5 py-4 transition-all duration-300 ${className}`}
     >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           {Icon && (
-            <div className="w-8 h-8 rounded-xl bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center">
-              <Icon className="w-4 h-4 text-cyan-200" />
+            <div className="w-8 h-8 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center">
+              <Icon className="w-4 h-4 text-white" />
             </div>
           )}
           <div>
-            <h3 className="text-xs uppercase tracking-[0.3em] text-slate-400">
+            <h3 className="text-title">
               {title}
             </h3>
             {subtitle && (
-              <span className="text-[10px] text-slate-500">{subtitle}</span>
+              <span className="text-label">{subtitle}</span>
             )}
           </div>
         </div>
@@ -63,11 +63,11 @@ export function ClimateStatItem({ label, value, unit, color, size = "normal" }) 
   
   return (
     <div className="flex flex-col">
-      <span className="text-[10px] uppercase text-slate-500 tracking-wider">
+      <span className="text-label">
         {label}
       </span>
       <span
-        className={`${valueSize} font-semibold`}
+        className={`${valueSize} text-value`}
         style={{ color: color || "#e2e8f0" }}
       >
         {value}
