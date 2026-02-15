@@ -7,6 +7,7 @@ import {
   Compass,
   GraduationCap,
   Globe2,
+  Leaf,
   MapPin,
   Navigation,
   Pause,
@@ -19,6 +20,7 @@ import SkyCanvas from "./components/SkyCanvas";
 import SkyDome from "./components/SkyDome";
 import ClimateTab from "./components/ClimateTab";
 import DisasterModule from "./components/DisasterModule";
+import AgricultureModule from "./components/AgricultureModule";
 import { LearningModeProvider, useLearningMode } from "./lib/teaching/useLearningMode";
 import { ObjectLearningPanel, GuidedTour, LearningPromptBanner } from "./components/TeachingModule";
 import { LearningModeToggle } from "./components/EducationCard";
@@ -248,7 +250,7 @@ function AppContent() {
   const [skyApiObjects, setSkyApiObjects] = useState([]);
   const [skyApiStatus, setSkyApiStatus] = useState("Idle");
   const lastSkyApiFetch = useRef(0);
-  const [activeTab, setActiveTab] = useState("sky"); // "sky", "climate", or "disaster"
+  const [activeTab, setActiveTab] = useState("sky"); // "sky", "climate", "disaster", or "agriculture"
   const [showLessonsLibrary, setShowLessonsLibrary] = useState(false);
   const [showGuidedTour, setShowGuidedTour] = useState(false);
 
@@ -1334,6 +1336,17 @@ function AppContent() {
               <Activity className="w-3 h-3" />
               Disaster
             </button>
+            <button
+              onClick={() => setActiveTab("agriculture")}
+              className={`flex-1 flex items-center justify-center gap-2 rounded-full px-3 py-2 text-[11px] transition-colors ${
+                activeTab === "agriculture"
+                  ? "bg-amber-500/25 text-amber-100 border border-amber-400/30"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Leaf className="w-3 h-3" />
+              Agri
+            </button>
           </div>
           <div className="text-[10px] text-slate-500">
             {skyViewStatus} · AstronomyAPI: {skyApiStatus}
@@ -1420,6 +1433,33 @@ function AppContent() {
                 <h3 className="text-lg font-semibold text-white/90 mb-2">Location Required</h3>
                 <p className="text-sm text-white/50 mb-4">
                   Disaster monitoring requires your location to fetch regional hazard data.
+                </p>
+                <p className="text-xs text-white/40">
+                  Please enable location services or wait for GPS to lock.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Agriculture Tab */}
+      {activeTab === "agriculture" && (
+        <div className="absolute left-6 right-[360px] top-36 bottom-36 z-20 overflow-y-auto pb-6">
+          {coords && coords.lat !== undefined ? (
+            <div className="h-full bg-black/40 backdrop-blur-lg rounded-2xl border border-white/10">
+              <AgricultureModule
+                coords={{ latitude: coords.lat, longitude: coords.lon }}
+                learningMode={learningMode}
+              />
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full">
+              <div className="p-8 bg-black/40 backdrop-blur-lg rounded-2xl border border-white/10 text-center max-w-md">
+                <span className="text-4xl mb-4 block">📍</span>
+                <h3 className="text-lg font-semibold text-white/90 mb-2">Location Required</h3>
+                <p className="text-sm text-white/50 mb-4">
+                  Agriculture intelligence requires your location to fetch regional agricultural data.
                 </p>
                 <p className="text-xs text-white/40">
                   Please enable location services or wait for GPS to lock.
