@@ -42,7 +42,8 @@ body {
   background-image: radial-gradient(700px 500px at 0% 0%, rgba(45, 32, 96, 0.35), transparent 60%),
     radial-gradient(700px 500px at 100% 0%, rgba(35, 22, 82, 0.3), transparent 60%),
     radial-gradient(700px 500px at 100% 100%, rgba(28, 20, 68, 0.28), transparent 60%),
-    radial-gradient(700px 500px at 0% 100%, rgba(40, 28, 88, 0.3), transparent 60%);
+    radial-gradient(700px 500px at 0% 100%, rgba(40, 28, 88, 0.3), transparent 60%),
+    radial-gradient(circle at 80% 80%, rgba(2, 6, 23, 0) 45%, rgb(2, 6, 23) 82%, rgba(2, 6, 23, 0.98) 100%);
   color: #b0b0b0;
 }
 
@@ -104,6 +105,7 @@ code,
   filter: blur(16px);
   opacity: 0.6;
   animation: auroraShift 26s ease-in-out infinite;
+  will-change: transform;
 }
 
 .bg-stars {
@@ -112,6 +114,7 @@ code,
   background-size: 140px 140px, 220px 220px;
   background-position: 0 0, 60px 80px;
   animation: starDrift 20s ease-in-out infinite;
+  will-change: transform;
 }
 
 .bg-grid {
@@ -120,6 +123,7 @@ code,
   background-size: 120px 120px;
   mask-image: radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0.8), transparent 70%);
   opacity: 0.35;
+  will-change: transform;
 }
 
 .bg-vignette {
@@ -130,6 +134,7 @@ code,
   background: radial-gradient(55% 55% at 80% 20%, rgba(40, 28, 96, 0.25), transparent 65%),
     radial-gradient(50% 50% at 20% 85%, rgba(30, 20, 78, 0.22), transparent 70%);
   animation: ambientPulse 30s ease-in-out infinite;
+  will-change: transform;
 }
 
 .glow-ring {
@@ -253,7 +258,7 @@ code,
 
 .btn-primary {
   border: 1px solid rgba(34, 240, 200, 0.55);
-  background: linear-gradient(135deg, rgba(34, 240, 200, 0.35), rgba(34, 240, 200, 0.15));
+  background: linear-gradient(135deg, rgba(34, 240, 200, 0.18), rgba(34, 240, 200, 0.08));
   color: #f5fffb;
   box-shadow: 0 12px 30px rgba(34, 240, 200, 0.25);
 }
@@ -265,23 +270,44 @@ code,
 
 .btn-secondary {
   border: 1px solid rgba(255, 255, 255, 0.25);
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
   color: #f2f2f2;
 }
 
 .btn-secondary:hover {
-  background: rgba(148, 163, 184, 0.18);
+  background: rgba(148, 163, 184, 0.09);
   transform: translateY(-1px);
 }
 
 .btn-tertiary {
   border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.03);
   color: #d0d0d0;
 }
 
 .btn-tertiary:hover {
   background: rgba(15, 23, 42, 0.55);
+}
+
+.sidebar-rail .btn-secondary,
+.sidebar-rail .btn-tertiary {
+  border-color: rgba(255, 255, 255, 0.38);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+  box-shadow: 0 14px 28px rgba(2, 6, 23, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.sidebar-rail .btn-tertiary {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e5e7eb;
+}
+
+.sidebar-rail .btn-secondary:hover,
+.sidebar-rail .btn-tertiary:hover {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(255, 255, 255, 0.5);
+  transform: translateY(-1px);
+  box-shadow: 0 18px 34px rgba(2, 6, 23, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.22);
 }
 
 .btn-primary:focus-visible,
@@ -294,7 +320,7 @@ code,
 .btn-notify {
   border-radius: 999px;
   border: 1px solid rgba(255, 191, 0, 0.6);
-  background: linear-gradient(135deg, rgba(255, 191, 0, 0.35), rgba(255, 140, 0, 0.18));
+  background: linear-gradient(135deg, rgba(255, 191, 0, 0.18), rgba(255, 140, 0, 0.09));
   color: #fff4cc;
   box-shadow: 0 14px 32px rgba(255, 191, 0, 0.3);
   font-size: 0.7rem;
@@ -318,6 +344,9 @@ code,
 }
 
 .tab-bar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.2);
   background: rgba(10, 15, 28, 0.8);
@@ -328,11 +357,12 @@ code,
 .tab-button {
   position: relative;
   border-radius: 999px;
-  font-size: 0.7rem;
-  letter-spacing: 0.14em;
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   transition: color 180ms ease, background 180ms ease;
   color: rgba(148, 163, 184, 0.9);
+  white-space: nowrap;
 }
 
 .tab-button:hover {
@@ -384,23 +414,11 @@ code,
   filter: drop-shadow(0 0 12px rgba(125, 211, 252, 0.6));
   border-radius: 999px;
   opacity: 0;
-  animation: meteorFly 7s linear infinite;
+  will-change: transform, opacity;
 }
 
-.meteor-2 {
-  top: 20%;
-  left: 70%;
-  width: 180px;
-  animation-delay: 2s;
-  animation-duration: 6.5s;
-}
-
-.meteor-3 {
-  top: 8%;
-  left: 60%;
-  width: 200px;
-  animation-delay: 4s;
-  animation-duration: 8s;
+.meteor--fly {
+  animation: meteorFly 2.6s linear forwards;
 }
 
 /* Climate Tab Animations */

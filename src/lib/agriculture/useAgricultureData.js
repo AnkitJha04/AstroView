@@ -405,14 +405,7 @@ export function useAgricultureExplainer(agricultureData) {
     } catch (err) {
       console.error('AI explanation error:', err);
       setError(err.message || 'Failed to generate explanation');
-      
-      // Fallback explanation
-      setExplanation({
-        topic,
-        text: getFallbackExplanation(agricultureData, topic),
-        timestamp: Date.now(),
-        isFallback: true
-      });
+      setExplanation(null);
     } finally {
       setLoading(false);
     }
@@ -460,27 +453,6 @@ Agricultural conditions:
   return {
     prompt: topicPrompts[topic] || topicPrompts.overview
   };
-}
-
-/**
- * Get fallback explanation when AI is unavailable
- */
-function getFallbackExplanation(data, topic) {
-  const fallbacks = {
-    overview: `Agricultural Stability Index is ${data.stabilityIndex?.score ?? 50}/100 (${data.stabilityIndex?.level ?? 'MODERATE'}). Soil moisture proxy at ${data.soilMoisture?.score ?? 50}/100 with ${(data.droughtRisk?.level ?? 'low').toLowerCase()} drought risk. ${data.precipitation?.consecutiveDryDays ?? 0} consecutive dry days recorded.`,
-    
-    moisture: `Soil moisture proxy: ${data.soilMoisture?.score ?? 50}/100 (${data.soilMoisture?.level ?? 'MODERATE'}). Based on ${(data.precipitation?.last7Days ?? 0).toFixed(1)}mm rainfall over 7 days and ${(data.conditions?.evapotranspiration ?? 0).toFixed(1)}mm evapotranspiration.`,
-    
-    drought: `Drought risk: ${data.droughtRisk?.score ?? 0}/100 (${data.droughtRisk?.level ?? 'LOW'}). ${data.precipitation?.consecutiveDryDays ?? 0} consecutive dry days. Rainfall at ${(data.rainfallAnomaly?.percentDeviation ?? 0) > 0 ? '+' : ''}${(data.rainfallAnomaly?.percentDeviation ?? 0).toFixed(0)}% of normal.`,
-    
-    heatStress: `Heat stress: ${data.heatStress?.score ?? 0}/100 (${data.heatStress?.level ?? 'SAFE'}). Current temperature ${(data.conditions?.temperature ?? 25).toFixed(1)}°C, feels like ${(data.conditions?.feelsLike ?? 25).toFixed(1)}°C with ${data.conditions?.humidity ?? 50}% humidity.`,
-    
-    stability: `Agricultural Stability Index: ${data.stabilityIndex?.score ?? 50}/100 (${data.stabilityIndex?.level ?? 'MODERATE'}). Composite of soil moisture (${data.soilMoisture?.level ?? 'MODERATE'}), drought risk (${data.droughtRisk?.level ?? 'LOW'}), heat stress (${data.heatStress?.level ?? 'SAFE'}), and rainfall anomaly.`,
-    
-    rainfall: `30-day rainfall: ${(data.precipitation?.last30Days ?? 0).toFixed(1)}mm (${data.rainfallAnomaly?.level ?? 'Normal'}). ${(data.rainfallAnomaly?.percentDeviation ?? 0) > 0 ? '+' : ''}${(data.rainfallAnomaly?.percentDeviation ?? 0).toFixed(0)}% compared to seasonal normal of ${(data.normals?.monthlyPrecipitation ?? 50).toFixed(1)}mm.`
-  };
-  
-  return fallbacks[topic] || fallbacks.overview;
 }
 
 export default useAgricultureData;

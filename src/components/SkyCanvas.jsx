@@ -1,60 +1,72 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { clamp, projectAzAlt } from "../lib/astro/skyMath";
+import nebulaBg from "../assets/nebula.jpg";
 
-const drawBackground = (ctx, width, height) => {
-  const deep = ctx.createRadialGradient(
-    width * 0.4,
-    height * 0.35,
-    width * 0.1,
-    width * 0.5,
-    height * 0.5,
-    width * 0.85
-  );
-  deep.addColorStop(0, "#1a1038");
-  deep.addColorStop(0.4, "#120f22");
-  deep.addColorStop(1, "#0d0d0d");
-  ctx.fillStyle = deep;
-  ctx.fillRect(0, 0, width, height);
+const TYPE_COLORS = {
+  sun: "#fbbf24",
+  moon: "#e5e7eb",
+  planet: "#f59e0b",
+  star: "#ffffff",
+  satellite: "#7c3aed",
+  "deep-sky": "#22d3ee",
+  nebula: "#22d3ee",
+  galaxy: "#38bdf8",
+  cluster: "#38bdf8",
+  comet: "#34d399",
+  asteroid: "#f97316"
+};
 
-  const glow = ctx.createRadialGradient(
-    width * 0.6,
-    height * 0.75,
-    width * 0.05,
-    width * 0.6,
-    height * 0.75,
-    width * 0.6
-  );
-  glow.addColorStop(0, "rgba(112, 0, 255, 0.18)");
-  glow.addColorStop(0.5, "rgba(60, 35, 140, 0.08)");
-  glow.addColorStop(1, "rgba(13, 13, 13, 0)");
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, width, height);
+const normalizeHex = (value) => {
+  if (!value) return null;
+  if (value.startsWith("#")) return value;
+  return null;
+};
+
+const hexToRgb = (value) => {
+  const hex = normalizeHex(value);
+  if (!hex) return null;
+  const clean = hex.replace("#", "");
+  if (clean.length !== 6) return null;
+  const num = Number.parseInt(clean, 16);
+  if (!Number.isFinite(num)) return null;
+  return {
+    r: (num >> 16) & 255,
+    g: (num >> 8) & 255,
+    b: num & 255
+  };
+};
+
+const getObjectColor = (obj) => {
+  return obj.color || TYPE_COLORS[obj.type] || "#e2e8f0";
+};
+
+const toRgba = (hex, alpha) => {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return `rgba(226, 232, 240, ${alpha})`;
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+};
+
+const drawBackground = (ctx, width, height, backgroundImage, view) => {
+  if (!backgroundImage) return;
+
+  const scale = Math.max(width / backgroundImage.width, height / backgroundImage.height);
+  const tileWidth = backgroundImage.width * scale;
+  const tileHeight = backgroundImage.height * scale;
+  const az = ((view.az % 360) + 360) % 360;
+  const alt = clamp(view.alt, -85, 85);
+  const xShift = (az / 360) * tileWidth;
+  const yShift = -((alt + 90) / 180) * tileHeight;
+  const startX = -((xShift % tileWidth) + tileWidth) % tileWidth;
+  const startY = -((yShift % tileHeight) + tileHeight) % tileHeight;
 
   ctx.save();
-  ctx.translate(width * 0.5, height * 0.45);
-  ctx.rotate(-0.35);
-  const band = ctx.createLinearGradient(-width, 0, width, 0);
-  band.addColorStop(0, "rgba(2, 6, 23, 0)");
-  band.addColorStop(0.35, "rgba(176, 176, 176, 0.12)");
-  band.addColorStop(0.55, "rgba(112, 0, 255, 0.2)");
-  band.addColorStop(0.8, "rgba(176, 176, 176, 0.1)");
-  band.addColorStop(1, "rgba(2, 6, 23, 0)");
-  ctx.fillStyle = band;
-  ctx.fillRect(-width, -height * 0.2, width * 2, height * 0.4);
+  ctx.globalAlpha = 0.6;
+  for (let x = startX; x < width; x += tileWidth) {
+    for (let y = startY; y < height; y += tileHeight) {
+      ctx.drawImage(backgroundImage, x, y, tileWidth, tileHeight);
+    }
+  }
   ctx.restore();
-
-  const vignette = ctx.createRadialGradient(
-    width * 0.5,
-    height * 0.5,
-    width * 0.2,
-    width * 0.5,
-    height * 0.5,
-    width * 0.9
-  );
-  vignette.addColorStop(0, "rgba(13, 13, 13, 0)");
-  vignette.addColorStop(1, "rgba(13, 13, 13, 0.75)");
-  ctx.fillStyle = vignette;
-  ctx.fillRect(0, 0, width, height);
 };
 
 const drawConstellations = (ctx, lines, view, width, height) => {
@@ -103,8 +115,10 @@ const drawCardinals = (ctx, width, height, view) => {
   });
 };
 
-const drawObjects = (ctx, objects, view, width, height, selectedId) => {
+const drawObjects = (ctx, objects, view, width, height, selectedId, pulse) => {
   const plotted = [];
+  const pulseValue = Number.isFinite(pulse) ? pulse : 0;
+  const pulseScale = 1 + Math.sin(pulseValue / 220) * 0.12;
 
   objects.forEach((obj) => {
     if (obj.alt < -2) return;
@@ -115,11 +129,13 @@ const drawObjects = (ctx, objects, view, width, height, selectedId) => {
     const baseSize = obj.type === "star" ? clamp(4 - obj.mag * 0.7, 0.6, 3.4) : 4;
     const size = selectedId === obj.id ? baseSize + 2 : baseSize;
 
+    const baseColor = getObjectColor(obj);
+
     if (obj.type === "satellite") {
       ctx.save();
-      ctx.strokeStyle = "rgba(112, 0, 255, 0.6)";
+      ctx.strokeStyle = toRgba(baseColor, 0.7);
       ctx.lineWidth = 1;
-      ctx.shadowColor = "rgba(112, 0, 255, 0.7)";
+      ctx.shadowColor = toRgba(baseColor, 0.8);
       ctx.shadowBlur = 8;
       ctx.beginPath();
       ctx.moveTo(point.x - size * 2.5, point.y + size * 2.5);
@@ -129,7 +145,7 @@ const drawObjects = (ctx, objects, view, width, height, selectedId) => {
     }
 
     ctx.beginPath();
-    ctx.fillStyle = obj.color || "#ffffff";
+    ctx.fillStyle = baseColor;
     ctx.arc(point.x, point.y, size, 0, Math.PI * 2);
     ctx.fill();
 
@@ -146,11 +162,7 @@ const drawObjects = (ctx, objects, view, width, height, selectedId) => {
 
       ctx.save();
       ctx.font = "10px \"Inter\", sans-serif";
-      const labelColor = obj.type === "satellite"
-        ? `rgba(112, 0, 255, ${labelAlpha})`
-        : obj.type === "star"
-          ? `rgba(229, 229, 229, ${labelAlpha})`
-          : `rgba(176, 176, 176, ${labelAlpha})`;
+      const labelColor = toRgba(baseColor, labelAlpha);
       ctx.fillStyle = labelColor;
       ctx.shadowColor = "rgba(2, 6, 23, 0.85)";
       ctx.shadowBlur = 6;
@@ -159,9 +171,21 @@ const drawObjects = (ctx, objects, view, width, height, selectedId) => {
     }
 
     if (selectedId === obj.id) {
-      ctx.strokeStyle = "rgba(248, 250, 252, 0.8)";
-      ctx.lineWidth = 1;
+      ctx.save();
+      ctx.strokeStyle = toRgba(baseColor, 0.9);
+      ctx.lineWidth = 1.6;
+      ctx.shadowColor = toRgba(baseColor, 0.65);
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, (size + 6) * pulseScale, 0, Math.PI * 2);
       ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(point.x - (size + 10), point.y);
+      ctx.lineTo(point.x + (size + 10), point.y);
+      ctx.moveTo(point.x, point.y - (size + 10));
+      ctx.lineTo(point.x, point.y + (size + 10));
+      ctx.stroke();
+      ctx.restore();
     }
 
     plotted.push({ ...obj, x: point.x, y: point.y, size });
@@ -177,6 +201,8 @@ export default function SkyCanvas({ objects, view, onSelect, selectedId, constel
   const plottedRef = useRef([]);
   const draggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0, az: 0, alt: 0 });
+  const [backgroundImage, setBackgroundImage] = useState(null);
+  const [pulse, setPulse] = useState(0);
 
   const handleResize = useMemo(() => {
     const resize = () => {
@@ -197,6 +223,12 @@ export default function SkyCanvas({ objects, view, onSelect, selectedId, constel
   }, [handleResize]);
 
   useEffect(() => {
+    const image = new Image();
+    image.onload = () => setBackgroundImage(image);
+    image.src = nebulaBg;
+  }, []);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || size.width === 0 || size.height === 0) return;
 
@@ -211,7 +243,7 @@ export default function SkyCanvas({ objects, view, onSelect, selectedId, constel
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.scale(dpr, dpr);
 
-    drawBackground(ctx, size.width, size.height);
+    drawBackground(ctx, size.width, size.height, backgroundImage, view);
     drawHorizon(ctx, size.width, size.height, view);
     if (constellations?.length) {
       drawConstellations(ctx, constellations, view, size.width, size.height);
@@ -223,9 +255,21 @@ export default function SkyCanvas({ objects, view, onSelect, selectedId, constel
       view,
       size.width,
       size.height,
-      selectedId
+      selectedId,
+      pulse
     );
-  }, [objects, view, size, selectedId]);
+  }, [objects, view, size, selectedId, constellations, backgroundImage, pulse]);
+
+  useEffect(() => {
+    if (!selectedId) return undefined;
+    let frameId;
+    const tick = (time) => {
+      setPulse(time);
+      frameId = window.requestAnimationFrame(tick);
+    };
+    frameId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [selectedId]);
 
   const handlePointerDown = (event) => {
     if (event.button !== 0) return;
@@ -283,7 +327,11 @@ export default function SkyCanvas({ objects, view, onSelect, selectedId, constel
   };
 
   return (
-    <div ref={containerRef} className="absolute inset-0 z-0">
+    <div
+      ref={containerRef}
+      className="absolute inset-0 z-0"
+      style={{ backgroundImage: `url(${nebulaBg})`, backgroundSize: "cover", backgroundPosition: "center" }}
+    >
       <canvas
         ref={canvasRef}
         className="w-full h-full touch-none"

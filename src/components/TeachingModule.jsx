@@ -28,7 +28,6 @@ import {
   generateTour,
   getViewingTip,
   generateObjectExplanation,
-  getFallbackExplanation,
   getCompassDirection,
   getTourSummary
 } from "../lib/teaching/guidedTourEngine";
@@ -39,7 +38,7 @@ const AUTO_ADVANCE_DELAY = 15000; // 15 seconds per tour stop
  * Object Learning Panel - Shows when an object is selected
  */
 export function ObjectLearningPanel({ object, constellation, onClose }) {
-  const { learningMode, cacheExplanation, getCachedExplanation } = useLearningMode();
+  const { learningMode, cacheExplanation, getCachedExplanation, awardExploration } = useLearningMode();
   const [explanation, setExplanation] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -60,32 +59,47 @@ export function ObjectLearningPanel({ object, constellation, onClose }) {
     setLoading(true);
     setError(null);
 
+    const timeoutMs = 45000;
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-      const result = await generateObjectExplanation(
-        { ...object, constellation },
-        controller.signal
-      );
-
-      clearTimeout(timeoutId);
+      let result = "";
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          result = await generateObjectExplanation(
+            { ...object, constellation },
+            controller.signal
+          );
+          clearTimeout(timeoutId);
+          if (result) break;
+        } catch (err) {
+          clearTimeout(timeoutId);
+          const message = err?.message || "";
+          if (attempt === 0 && /failed to fetch|network/i.test(message)) {
+            await sleep(800);
+            continue;
+          }
+          throw err;
+        }
+      }
 
       if (result) {
         setExplanation(result);
         cacheExplanation(cacheKey, result);
+        awardExploration(object.id || object.name);
       } else {
-        // Use fallback
-        const fallback = getFallbackExplanation(object);
-        setExplanation(fallback);
+        setError("AI explanation unavailable");
+        setExplanation(null);
       }
     } catch (err) {
-      setError("Unable to generate explanation");
-      setExplanation(getFallbackExplanation(object));
+      setError("Unable to generate explanation. Check AI settings and retry.");
+      setExplanation(null);
     } finally {
       setLoading(false);
     }
-  }, [object, constellation, cacheKey, getCachedExplanation, cacheExplanation]);
+  }, [object, constellation, cacheKey, getCachedExplanation, cacheExplanation, awardExploration]);
 
   useEffect(() => {
     if (learningMode && object && expanded) {
@@ -117,7 +131,15 @@ export function ObjectLearningPanel({ object, constellation, onClose }) {
       }
     >
       {error && (
-        <div className="text-[11px] text-amber-300 mb-3">{error}</div>
+        <div className="text-[11px] text-amber-300 mb-3 flex items-center justify-between gap-3">
+          <span>{error}</span>
+          <button
+            onClick={fetchExplanation}
+            className="btn-tertiary px-2 py-1"
+          >
+            Retry
+          </button>
+        </div>
       )}
 
       {explanation && (
@@ -156,25 +178,35 @@ export function ObjectLearningPanel({ object, constellation, onClose }) {
  * Guided Sky Tour Component
  */
 export function GuidedTour({ objects, onCenterObject, onSelectObject, onClose }) {
-  const { learningMode, addToTourHistory } = useLearningMode();
-  const [tour, setTour] = useState([]);
+  const { learningMode, addToTourHistory, awardExploration } = useLearningMode();
+  const [tourIds, setTourIds] = useState([]);
   const [currentStep, setCurrentStep] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [explanation, setExplanation] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [explanationError, setExplanationError] = useState(null);
+  const objectsById = useMemo(() => new Map(objects.map((obj) => [obj.id, obj])), [objects]);
+  const tour = useMemo(
+    () => tourIds.map((id) => objectsById.get(id)).filter(Boolean),
+    [tourIds, objectsById]
+  );
 
   // Generate tour when objects change
   useEffect(() => {
-    if (objects && objects.length > 0) {
-      const newTour = generateTour(objects, 5);
-      setTour(newTour);
-      setCurrentStep(0);
-      setExplanation(null);
-    }
-  }, [objects]);
+    if (!objects || objects.length === 0) return;
+    const hasAny = tourIds.some((id) => objectsById.has(id));
+    if (tourIds.length && hasAny) return;
+    const newTour = generateTour(objects, 5);
+    if (!newTour.length) return;
+    setTourIds(newTour.map((obj) => obj.id));
+    setCurrentStep(0);
+    setExplanation(null);
+    setExplanationError(null);
+  }, [objects, objectsById, tourIds]);
 
   const currentObject = tour[currentStep] || null;
   const tourSummary = useMemo(() => getTourSummary(tour), [tour]);
+  const isLastStep = currentStep >= tour.length - 1;
 
   // Auto-advance when playing
   useEffect(() => {
@@ -193,43 +225,99 @@ export function GuidedTour({ objects, onCenterObject, onSelectObject, onClose })
 
   // Center on current object when step changes
   useEffect(() => {
+    if (!tour.length) return;
+    if (currentStep < tour.length) return;
+    setCurrentStep(Math.max(tour.length - 1, 0));
+  }, [currentStep, tour.length]);
+
+  useEffect(() => {
+    if (currentObject || !objects.length) return;
+    const newTour = generateTour(objects, 5);
+    if (!newTour.length) return;
+    setTourIds(newTour.map((obj) => obj.id));
+    setCurrentStep(0);
+    setExplanation(null);
+    setExplanationError(null);
+  }, [currentObject, objects]);
+
+  useEffect(() => {
     if (currentObject && onCenterObject) {
       onCenterObject(currentObject);
       onSelectObject?.(currentObject);
     }
   }, [currentObject, onCenterObject, onSelectObject]);
 
-  // Fetch explanation for current object
-  useEffect(() => {
+  const fetchTourExplanation = useCallback(() => {
     if (!currentObject) return;
+    const timeoutMs = 45000;
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    let cancelled = false;
 
-    const controller = new AbortController();
-    setLoading(true);
+    const run = async () => {
+      setLoading(true);
+      setExplanationError(null);
 
-    generateObjectExplanation(currentObject, controller.signal)
-      .then((result) => {
-        if (!controller.signal.aborted) {
-          setExplanation(result || getFallbackExplanation(currentObject));
+      try {
+        let result = "";
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+          try {
+            result = await generateObjectExplanation(currentObject, controller.signal);
+            clearTimeout(timeoutId);
+            if (result) break;
+          } catch (err) {
+            clearTimeout(timeoutId);
+            const message = err?.message || "";
+            if (attempt === 0 && /failed to fetch|network/i.test(message)) {
+              await sleep(800);
+              continue;
+            }
+            throw err;
+          }
         }
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setExplanation(getFallbackExplanation(currentObject));
+
+        if (!cancelled) {
+          if (result) {
+            setExplanation(result);
+            awardExploration(currentObject.id || currentObject.name);
+          } else {
+            setExplanation(null);
+            setExplanationError("AI explanation unavailable");
+          }
         }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
+      } catch (err) {
+        if (!cancelled) {
+          setExplanation(null);
+          setExplanationError("AI explanation unavailable");
+        }
+      } finally {
+        if (!cancelled) {
           setLoading(false);
         }
-      });
+      }
+    };
 
-    return () => controller.abort();
-  }, [currentObject]);
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentObject, awardExploration]);
+
+  useEffect(() => {
+    const cleanup = fetchTourExplanation();
+    return () => cleanup?.();
+  }, [fetchTourExplanation]);
 
   const handleNext = () => {
     if (currentStep < tour.length - 1) {
       setCurrentStep((prev) => prev + 1);
+      return;
     }
+    setIsPlaying(false);
+    addToTourHistory(`tour-${Date.now()}`);
+    onClose?.();
   };
 
   const handlePrev = () => {
@@ -239,8 +327,14 @@ export function GuidedTour({ objects, onCenterObject, onSelectObject, onClose })
   };
 
   const handleRestart = () => {
+    const newTour = generateTour(objects, 5);
+    if (newTour.length) {
+      setTourIds(newTour.map((obj) => obj.id));
+    }
     setCurrentStep(0);
     setIsPlaying(false);
+    setExplanation(null);
+    setExplanationError(null);
     addToTourHistory(`tour-${Date.now()}`);
   };
 
@@ -308,10 +402,22 @@ export function GuidedTour({ objects, onCenterObject, onSelectObject, onClose })
               <span className="h-3 w-3 animate-spin rounded-full border-2 border-slate-400/30 border-t-slate-400" />
               Loading explanation...
             </div>
-          ) : (
-            <div className="text-[12px] text-slate-300 leading-relaxed mb-3 max-h-32 overflow-y-auto">
+          ) : explanation ? (
+            <div className="text-[12px] text-slate-300 leading-relaxed mb-3 max-h-48 overflow-y-auto">
               {explanation}
             </div>
+          ) : explanationError ? (
+            <div className="text-[11px] text-amber-300 mb-3 flex items-center justify-between gap-3">
+              <span>{explanationError}</span>
+              <button
+                onClick={fetchTourExplanation}
+                className="btn-tertiary px-2 py-1"
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
+            <div className="text-[11px] text-slate-400 mb-3">Select a different object.</div>
           )}
 
           <ViewingTip>{getViewingTip(currentObject)}</ViewingTip>
@@ -365,10 +471,10 @@ export function GuidedTour({ objects, onCenterObject, onSelectObject, onClose })
 
         <button
           onClick={handleNext}
-          disabled={currentStep === tour.length - 1}
+          disabled={tour.length === 0}
           className="flex items-center gap-1 px-3 py-2 rounded-full text-[11px] border border-cyan-400/30 bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30 disabled:opacity-30"
         >
-          Next
+          {isLastStep ? "Finish" : "Next"}
           <ChevronRight className="w-4 h-4" />
         </button>
       </div>

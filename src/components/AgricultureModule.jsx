@@ -71,9 +71,6 @@ function AIExplainerPanel({ agricultureData, topic, onClose }) {
           <span className="px-2 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
             🤖 AI Analysis
           </span>
-          {explanation?.isFallback && (
-            <span className="text-amber-400">(Fallback - AI unavailable)</span>
-          )}
         </div>
         
         {/* Loading state */}

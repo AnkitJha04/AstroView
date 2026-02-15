@@ -21,7 +21,12 @@ const STYLE_INSTRUCTIONS =
   "If you don't know the answer, say 'Sorry, I don't have that information.'"+
   "Give a fun fact related to the topic at the end of your response if its actually a good one.";
 
-export const getAiProvider = () => (AI_PROVIDER === "ollama" ? "ollama" : "openrouter");
+const hasOpenRouterKey = Boolean(OPENROUTER_API_KEY);
+
+export const getAiProvider = () => {
+  if (AI_PROVIDER === "ollama") return "ollama";
+  return hasOpenRouterKey ? "openrouter" : "ollama";
+};
 
 export const getAiProviderLabel = () =>
   getAiProvider() === "ollama" ? "Ollama" : "OpenRouter";
@@ -132,10 +137,39 @@ export const generateAiText = async ({
   if (!prompt) return "";
 
   if (getAiProvider() === "ollama") {
-    return generateOllamaText({ prompt, system, temperature, maxTokens, signal, model });
+    return generateOllamaText({
+      prompt,
+      system,
+      temperature,
+      maxTokens,
+      signal,
+      model: model || OLLAMA_MODEL
+    });
   }
 
-  return generateOpenRouterText({ prompt, system, temperature, maxTokens, signal, model });
+  if (!hasOpenRouterKey) {
+    return generateOllamaText({
+      prompt,
+      system,
+      temperature,
+      maxTokens,
+      signal,
+      model: OLLAMA_MODEL
+    });
+  }
+
+  try {
+    return await generateOpenRouterText({ prompt, system, temperature, maxTokens, signal, model });
+  } catch (err) {
+    return generateOllamaText({
+      prompt,
+      system,
+      temperature,
+      maxTokens,
+      signal,
+      model: OLLAMA_MODEL
+    });
+  }
 };
 
 export const fetchLocalOllamaModels = async (signal) => {

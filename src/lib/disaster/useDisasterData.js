@@ -52,10 +52,11 @@ export const useDisasterData = (location, climateData = null) => {
 
     try {
       // Fetch all data sources in parallel
+      const coords = { lat: location.latitude, lon: location.longitude };
       const [eqData, severeData, precipData] = await Promise.all([
-        fetchEarthquakes(location.latitude, location.longitude, 500),
-        fetchSevereWeather(location.latitude, location.longitude),
-        fetchPrecipitationHistory(location.latitude, location.longitude, 7)
+        fetchEarthquakes(coords, 500),
+        fetchSevereWeather(coords),
+        fetchPrecipitationHistory(coords)
       ]);
 
       // Update raw data

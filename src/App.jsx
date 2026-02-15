@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { gsap } from "gsap";
 import * as Astronomy from "astronomy-engine";
 import {
   Activity,
@@ -41,7 +42,6 @@ import {
   fetchTleByCatalog,
   fetchTleByName,
   fetchTleGroups,
-  getFallbackTles,
   getSatelliteObjects
 } from "./lib/astro/satellites";
 import { useDeviceOrientation } from "./lib/sensors/useDeviceOrientation";
@@ -55,19 +55,44 @@ import {
   getAiProviderLabel
 } from "./lib/ai/aiClient";
 
+const toNumber = (value) => {
+  const num = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
+const formatFixed = (value, digits, fallback = "--") => {
+  const num = toNumber(value);
+  if (num === null) return fallback;
+  return num.toFixed(digits);
+};
+
 const formatCoord = (value, suffixPositive, suffixNegative) => {
-  const suffix = value >= 0 ? suffixPositive : suffixNegative;
-  const abs = Math.abs(value).toFixed(4);
+  const num = toNumber(value);
+  if (num === null) return "--";
+  const suffix = num >= 0 ? suffixPositive : suffixNegative;
+  const abs = Math.abs(num).toFixed(4);
   return `${abs}${suffix}`;
 };
 
-const formatAngle = (value) => `${value.toFixed(1)}deg`;
-const NASA_API_KEY = import.meta.env.VITE_NASA_API_KEY || "RVIyEa32Wc7hJum3LX77eohhSqjdtsfwtxXMAyYe";
+const formatAngle = (value) => {
+  const formatted = formatFixed(value, 1, "--");
+  return formatted === "--" ? formatted : `${formatted}deg`;
+};
+const NASA_API_KEY = import.meta.env.VITE_NASA_API_KEY || "";
 const AI_TIMEOUT_MS =
   Number(import.meta.env.VITE_AI_TIMEOUT_MS || import.meta.env.VITE_OLLAMA_TIMEOUT_MS) ||
   45000;
-const HUBBLE_LIVE_URL = import.meta.env.VITE_HUBBLE_LIVE_URL || "https://www.youtube.com/watch?v=aB1yRz0HhdY";
-const JWST_LIVE_URL = import.meta.env.VITE_JWST_LIVE_URL || "https://www.youtube.com/watch?v=FV4Q9DryTG8";
+const HUBBLE_LIVE_URL = import.meta.env.VITE_HUBBLE_LIVE_URL || "https://spacetelescopelive.org/hubble";
+const JWST_LIVE_URL = import.meta.env.VITE_JWST_LIVE_URL || "https://spacetelescopelive.org/webb";
+const HUBBLE_YT_URL =
+  import.meta.env.VITE_HUBBLE_YT_URL || "https://www.youtube.com/watch?v=FV4Q9DryTG8";
+const JWST_YT_URL =
+  import.meta.env.VITE_JWST_YT_URL || "https://www.youtube.com/watch?v=aB1yRz0HhdY";
+const FALLBACK_HUBBLE_TLE = {
+  name: "HUBBLE SPACE TELESCOPE",
+  line1: "1 20580U 90037B   24045.48641448  .00001127  00000+0  73164-4 0  9993",
+  line2: "2 20580  28.4694  19.4858 0002947  88.5244 271.6093 15.09327129227415"
+};
 
 const getEmbedOrigin = () => {
   if (typeof window === "undefined") return "";
@@ -84,16 +109,22 @@ const toEmbedUrl = (url) => {
     if (host === "youtube.com" || host === "m.youtube.com") {
       const videoId = parsed.searchParams.get("v");
       if (videoId) {
-        return `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&rel=0&modestbranding=1&playsinline=1${originParam}`;
+        return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${originParam}`;
+      }
+      if (parsed.pathname.startsWith("/live/")) {
+        const liveId = parsed.pathname.split("/")[2];
+        if (liveId) {
+          return `https://www.youtube.com/embed/${liveId}?autoplay=1&mute=1&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${originParam}`;
+        }
       }
       if (parsed.pathname.startsWith("/embed/")) {
-        return `${parsed.origin}${parsed.pathname}?autoplay=1&mute=1&rel=0&modestbranding=1&playsinline=1${originParam}`;
+        return `${parsed.origin}${parsed.pathname}?autoplay=1&mute=1&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${originParam}`;
       }
     }
     if (host === "youtu.be") {
       const videoId = parsed.pathname.replace("/", "");
       if (videoId) {
-        return `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&rel=0&modestbranding=1&playsinline=1${originParam}`;
+        return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${originParam}`;
       }
     }
     return url;
@@ -102,8 +133,11 @@ const toEmbedUrl = (url) => {
   }
 };
 const ASTRONOMY_API_BASE = "https://api.astronomyapi.com/api/v2";
-const ASTRONOMY_APP_ID = import.meta.env.VITE_ASTRONOMY_APP_ID || "89fc06d3-ac66-4c2b-af29-f1e60528a429";
-const ASTRONOMY_APP_SECRET = import.meta.env.VITE_ASTRONOMY_APP_SECRET || "95fc06d51756c1e3dcb219aca405139e44e65cfe76a41205511a84cde05a018ec4efc97f9c75721e41dc8184599861188ed72f256d4f406a2321e3da371853b211e233b41b548de80764c84839c35c990a0c35a167770673c231ae5250f124489f3c083b8d3807675f3466d487b69ab6";
+const ASTRONOMY_APP_ID = import.meta.env.VITE_ASTRONOMY_APP_ID || "";
+const ASTRONOMY_APP_SECRET = import.meta.env.VITE_ASTRONOMY_APP_SECRET || "";
+const TIME_TRAVEL_RANGE_HOURS = 24 * 30;
+const TIME_TRAVEL_STEP_HOURS = 1;
+const PLAYBACK_MINUTES_PER_SECOND = 60;
 
 const buildAstronomyApiAuth = () => {
   if (!ASTRONOMY_APP_ID || !ASTRONOMY_APP_SECRET) return "";
@@ -159,6 +193,11 @@ const visibilityLabel = (sunAlt) => {
   return { label: "Excellent", detail: "Dark sky" };
 };
 
+const normalizeAzTarget = (currentAz, targetAz) => {
+  const delta = ((targetAz - currentAz + 540) % 360) - 180;
+  return currentAz + delta;
+};
+
 const SPACE_KEYWORDS = [
   "sky",
   "space",
@@ -194,9 +233,16 @@ function AppContent() {
   const [debugTargetInfo, setDebugTargetInfo] = useState(null);
   const debugTargetRef = useRef(null);
   const [view, setView] = useState({ az: 0, alt: 25, fov: 90 });
+  const viewRef = useRef(view);
+  const focusTweenRef = useRef(null);
   const [selectedId, setSelectedId] = useState(null);
   const [isLive, setIsLive] = useState(true);
   const [time, setTime] = useState(new Date());
+  const [timeOffsetHours, setTimeOffsetHours] = useState(0);
+  const [isTimelinePlaying, setIsTimelinePlaying] = useState(false);
+  const [isTimelineScrubbing, setIsTimelineScrubbing] = useState(false);
+  const [isTimelineMinimized, setIsTimelineMinimized] = useState(false);
+  const [timelineEvents, setTimelineEvents] = useState([]);
   const [search, setSearch] = useState("");
   const [useSensors, setUseSensors] = useState(true);
   const [llmPrompt, setLlmPrompt] = useState("");
@@ -228,6 +274,7 @@ function AppContent() {
   const [telescopeFeedError, setTelescopeFeedError] = useState("");
   const [telescopeFeedMode, setTelescopeFeedMode] = useState("live");
   const [liveEmbedLoaded, setLiveEmbedLoaded] = useState(false);
+  const [liveEmbedFailed, setLiveEmbedFailed] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [apodSummary, setApodSummary] = useState("");
   const [apodSummaryStatus, setApodSummaryStatus] = useState("idle");
@@ -241,6 +288,17 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState("sky"); // "sky", "climate", "disaster", or "agriculture"
   const [showLessonsLibrary, setShowLessonsLibrary] = useState(false);
   const [showGuidedTour, setShowGuidedTour] = useState(false);
+  const lastTimelineRelease = useRef(0);
+  const [pointer, setPointer] = useState({ x: 0, y: 0 });
+  const [scrollY, setScrollY] = useState(0);
+  const [meteors, setMeteors] = useState([]);
+  const meteorIdRef = useRef(0);
+  const pointerRafRef = useRef(null);
+  const jwstFetchAttempt = useRef(0);
+
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
 
   const { status: orientationStatus, orientation, start: startOrientation } =
     useDeviceOrientation();
@@ -252,13 +310,103 @@ function AppContent() {
   } = useGeolocation();
 
   // Teaching Module context
-  const { learningMode, toggleLearningMode, presentationMode } = useLearningMode();
+  const { learningMode, toggleLearningMode, presentationMode, totalPoints, exploredCount } = useLearningMode();
 
   useEffect(() => {
-    if (!isLive) return;
+    if (!isLive || isTimelinePlaying || timeOffsetHours !== 0) return;
     const id = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(id);
-  }, [isLive]);
+  }, [isLive, isTimelinePlaying, timeOffsetHours]);
+
+  useEffect(() => {
+    const handlePointer = (event) => {
+      if (pointerRafRef.current) return;
+      const { innerWidth, innerHeight } = window;
+      const x = innerWidth ? event.clientX / innerWidth - 0.5 : 0;
+      const y = innerHeight ? event.clientY / innerHeight - 0.5 : 0;
+      pointerRafRef.current = window.requestAnimationFrame(() => {
+        setPointer({ x, y });
+        pointerRafRef.current = null;
+      });
+    };
+
+    const handleScroll = () => {
+      setScrollY(window.scrollY || 0);
+    };
+
+    window.addEventListener("pointermove", handlePointer);
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    handleScroll();
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointer);
+      window.removeEventListener("scroll", handleScroll);
+      if (pointerRafRef.current) {
+        window.cancelAnimationFrame(pointerRafRef.current);
+        pointerRafRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    let timerId;
+    let removeId;
+
+    const spawnMeteor = () => {
+      const id = meteorIdRef.current++;
+      const width = 140 + Math.random() * 140;
+      const top = 6 + Math.random() * 22;
+      const left = 60 + Math.random() * 30;
+      const duration = 1.6 + Math.random() * 1.8;
+
+      setMeteors((prev) => [
+        ...prev,
+        {
+          id,
+          top,
+          left,
+          width,
+          duration
+        }
+      ]);
+
+      removeId = setTimeout(() => {
+        setMeteors((prev) => prev.filter((meteor) => meteor.id !== id));
+      }, Math.ceil(duration * 1000) + 300);
+
+      const nextDelay = 4000 + Math.random() * 9000;
+      timerId = setTimeout(spawnMeteor, nextDelay);
+    };
+
+    const initialDelay = 1500 + Math.random() * 2500;
+    timerId = setTimeout(spawnMeteor, initialDelay);
+
+    return () => {
+      clearTimeout(timerId);
+      clearTimeout(removeId);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isTimelinePlaying) return;
+    const id = setInterval(() => {
+      setTimeOffsetHours((current) => {
+        const next = current + PLAYBACK_MINUTES_PER_SECOND / 60;
+        const clamped = Math.max(-TIME_TRAVEL_RANGE_HOURS, Math.min(TIME_TRAVEL_RANGE_HOURS, next));
+        setTime(new Date(Date.now() + clamped * 60 * 60 * 1000));
+        if (clamped !== 0) setIsLive(false);
+        if (clamped === TIME_TRAVEL_RANGE_HOURS || clamped === -TIME_TRAVEL_RANGE_HOURS) {
+          setIsTimelinePlaying(false);
+        }
+        return clamped;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [isTimelinePlaying]);
+
+  useEffect(() => {
+    setTimelineEvents(["Time Travel Mode enabled"]);
+  }, []);
 
   useEffect(() => {
     startGeolocation();
@@ -325,7 +473,7 @@ function AppContent() {
   useEffect(() => {
     if (viewMode !== "360") return;
     if (!ASTRONOMY_APP_ID || !ASTRONOMY_APP_SECRET) {
-      setSkyApiStatus("Missing AstronomyAPI credentials");
+      setSkyApiStatus("Missing AstronomyAPI credentials. Set VITE_ASTRONOMY_APP_ID and VITE_ASTRONOMY_APP_SECRET.");
       setSkyApiObjects([]);
       return;
     }
@@ -465,32 +613,37 @@ function AppContent() {
   }, [time, observer]);
 
   const getTrackedSatellite = (keywords) => {
-    if (!tleData.length) return null;
-    const match = tleData.find((tle) =>
-      keywords.some((keyword) => tle.name.toLowerCase().includes(keyword))
-    );
+    const normalized = keywords.map((keyword) => keyword.toLowerCase());
+    const wantsHubble = normalized.some((keyword) => keyword.includes("hubble") || keyword.includes("hst"));
+    const sourceList = tleData.length
+      ? tleData
+      : wantsHubble
+        ? [FALLBACK_HUBBLE_TLE]
+        : [];
+    if (!sourceList.length) return null;
+    const match = sourceList.find((tle) =>
+      normalized.some((keyword) => tle.name.toLowerCase().includes(keyword))
+    ) || (wantsHubble ? sourceList[0] : null);
     if (!match) return null;
     const results = getSatelliteObjects(time, activeLocation, [match], 1);
     return results[0] || null;
   };
 
   const hubbleSat = useMemo(
-    () => getTrackedSatellite(["hubble"]),
+    () => getTrackedSatellite(["hubble", "hst"]),
     [tleData, time, activeLocation]
   );
   const jwstSat = useMemo(
-    () => getTrackedSatellite(["jwst", "james webb"]),
+    () => getTrackedSatellite(["jwst", "james webb", "webb"]),
     [tleData, time, activeLocation]
   );
 
-  const activeSatellite = satelliteTarget === "jwst" ? jwstSat : hubbleSat;
-  const activeTelescopeFeed =
-    satelliteTarget === "jwst" ? telescopeFeeds.jwst : telescopeFeeds.hubble;
-  const activeLiveUrl = useMemo(
-    () =>
-      toEmbedUrl(satelliteTarget === "jwst" ? JWST_LIVE_URL : HUBBLE_LIVE_URL),
-    [satelliteTarget]
-  );
+  const activeSatellite = hubbleSat;
+  const activeTelescopeFeed = telescopeFeeds.hubble;
+  const activeLiveUrl = useMemo(() => {
+    return HUBBLE_YT_URL ? toEmbedUrl(HUBBLE_YT_URL) : "";
+  }, []);
+  const activeFallbackVideoUrl = "";
 
   useEffect(() => {
     if (!coords) return;
@@ -534,12 +687,17 @@ function AppContent() {
           "active",
           "gps-ops",
           "weather",
-          "science"
+          "science",
+          "special"
         ]);
         const namedByCatalog = await fetchTleByCatalog([20580, 50463]);
         const namedByName = await fetchTleByName([
           "HUBBLE SPACE TELESCOPE",
-          "JAMES WEBB SPACE TELESCOPE"
+          "HST",
+          "JAMES WEBB SPACE TELESCOPE",
+          "JAMES WEBB SPACE TELESCOPE (JWST)",
+          "JWST",
+          "WEBB"
         ]);
         if (!active) return;
         const merged = [...result, ...namedByCatalog, ...namedByName].reduce((acc, entry) => {
@@ -549,18 +707,16 @@ function AppContent() {
           return acc;
         }, []);
         if (!merged.length) {
-          const fallback = getFallbackTles();
-          setTleData(fallback);
-          setTleStatus(fallback.length ? "Using fallback TLEs" : "No satellites loaded");
+          setTleData([]);
+          setTleStatus("Satellite data unavailable");
           return;
         }
         setTleData(merged);
         setTleStatus("Satellites online");
       } catch (err) {
         if (!active) return;
-        const fallback = getFallbackTles();
-        setTleData(fallback);
-        setTleStatus(fallback.length ? "Using fallback TLEs" : "Satellite data unavailable");
+        setTleData([]);
+        setTleStatus("Satellite data unavailable");
       }
     };
     loadTle();
@@ -569,7 +725,55 @@ function AppContent() {
     };
   }, []);
 
+  useEffect(() => {
+    if (satelliteTarget !== "jwst" || jwstSat) return;
+    const now = Date.now();
+    if (now - jwstFetchAttempt.current < 60000) return;
+    jwstFetchAttempt.current = now;
+
+    let active = true;
+    const refreshJwst = async () => {
+      try {
+        const extraByCatalog = await fetchTleByCatalog([50463]);
+        const extraByName = await fetchTleByName([
+          "JAMES WEBB SPACE TELESCOPE",
+          "JAMES WEBB SPACE TELESCOPE (JWST)",
+          "JWST",
+          "WEBB"
+        ]);
+        if (!active) return;
+        const merged = [...tleData, ...extraByCatalog, ...extraByName].reduce(
+          (acc, entry) => {
+            if (!acc.some((item) => item.name === entry.name)) {
+              acc.push(entry);
+            }
+            return acc;
+          },
+          []
+        );
+        if (merged.length !== tleData.length) {
+          setTleData(merged);
+        }
+      } catch (err) {
+        // ignore JWST refresh errors
+      }
+    };
+
+    refreshJwst();
+    return () => {
+      active = false;
+    };
+  }, [satelliteTarget, jwstSat, tleData]);
+
   const loadNasa = async () => {
+    if (!NASA_API_KEY) {
+      setNasaStatus("NASA API key missing");
+      setNasaError("Set VITE_NASA_API_KEY to enable NASA updates.");
+      setNasaApod(null);
+      setNasaEvents([]);
+      return;
+    }
+
     setNasaStatus("Loading NASA updates...");
     setNasaError("");
     let ok = true;
@@ -632,6 +836,12 @@ function AppContent() {
     return url;
   };
 
+  const withCacheBust = (url) => {
+    if (!url) return "";
+    const separator = url.includes("?") ? "&" : "?";
+    return `${url}${separator}t=${Date.now()}`;
+  };
+
   const fetchLatestFromTelescopeSite = async (baseUrl, proxyBase, fallbackLabel) => {
     const listUrl = proxyBase ? `${proxyBase}/api/v3/images?page=1` : `${baseUrl}/api/v3/images?page=1`;
     const listRes = await fetch(listUrl);
@@ -656,7 +866,7 @@ function AppContent() {
     const bestFile = files
       .slice()
       .sort((a, b) => (b.width || 0) - (a.width || 0))[0];
-    const imageUrl = normalizeImageUrl(baseUrl, bestFile?.file_url);
+    const imageUrl = withCacheBust(normalizeImageUrl(baseUrl, bestFile?.file_url));
     if (!imageUrl) return null;
     return {
       title: detail?.name || fallbackLabel,
@@ -681,7 +891,7 @@ function AppContent() {
       title: meta.title || query,
       date: meta.date_created || "",
       description: meta.description || "",
-      image: link
+      image: withCacheBust(link)
     };
   };
 
@@ -692,13 +902,13 @@ function AppContent() {
 
     if (isLive) {
       const missing = [];
-      if (!HUBBLE_LIVE_URL) missing.push("Hubble live URL");
-      if (!JWST_LIVE_URL) missing.push("JWST live URL");
+      if (!HUBBLE_YT_URL) missing.push("Hubble YouTube URL");
+      if (!JWST_YT_URL) missing.push("JWST YouTube URL");
       setTelescopeFeedUpdatedAt(new Date());
       if (missing.length) {
         setTelescopeFeedStatus("Live stream not configured");
         setTelescopeFeedError(
-          `Missing ${missing.join(" and ")}. Set VITE_HUBBLE_LIVE_URL and VITE_JWST_LIVE_URL.`
+          `Missing ${missing.join(" and ")}. Set VITE_HUBBLE_YT_URL and VITE_JWST_YT_URL.`
         );
       } else {
         setTelescopeFeedStatus("Live streams ready");
@@ -710,7 +920,7 @@ function AppContent() {
     let jwst = null;
     const errors = [];
 
-    if (isLive) {
+    if (!isLive) {
       try {
         hubble = await fetchLatestFromTelescopeSite(
           "https://hubblesite.org",
@@ -718,7 +928,7 @@ function AppContent() {
           "Hubble"
         );
       } catch (err) {
-        errors.push("Hubble live feed blocked.");
+        errors.push("Hubble image feed blocked.");
       }
 
       try {
@@ -728,7 +938,7 @@ function AppContent() {
           "JWST"
         );
       } catch (err) {
-        errors.push("JWST live feed blocked.");
+        errors.push("JWST image feed blocked.");
       }
     }
 
@@ -783,17 +993,20 @@ function AppContent() {
   useEffect(() => {
     if (telescopeFeedMode !== "live") return;
     setLiveEmbedLoaded(false);
+    setLiveEmbedFailed(false);
     const timeoutId = setTimeout(() => {
-      if (!liveEmbedLoaded) {
-        setTelescopeFeedMode("image");
-        setFeedback({
-          tone: "error",
-          message: "Live stream blocked. Switched to image feed."
-        });
-      }
+      setLiveEmbedLoaded((loaded) => {
+        if (!loaded) {
+          setFeedback({
+            tone: "error",
+            message: "Live embed may be blocked. Use the open link below."
+          });
+        }
+        return loaded;
+      });
     }, 4000);
     return () => clearTimeout(timeoutId);
-  }, [telescopeFeedMode, satelliteTarget, liveEmbedLoaded]);
+  }, [telescopeFeedMode, satelliteTarget, activeLiveUrl]);
 
   const matches = useMemo(() => {
     if (!search.trim()) return [];
@@ -815,11 +1028,31 @@ function AppContent() {
       return;
     }
     if (payload?.az !== undefined && payload?.alt !== undefined) {
-      setView((current) => ({
-        ...current,
-        az: payload.az,
-        alt: payload.alt
-      }));
+      if (useSensors) setUseSensors(false);
+      if (focusTweenRef.current) {
+        focusTweenRef.current.kill();
+        focusTweenRef.current = null;
+      }
+      const current = viewRef.current;
+      const targetAz = normalizeAzTarget(current.az, payload.az);
+      const targetAlt = clamp(payload.alt, -85, 85);
+      const targetFov = clamp(current.fov / 1.7, 30, 120);
+      const tweenState = { az: current.az, alt: current.alt, fov: current.fov };
+      focusTweenRef.current = gsap.to(tweenState, {
+        az: targetAz,
+        alt: targetAlt,
+        fov: targetFov,
+        duration: 1.2,
+        ease: "power3.out",
+        onUpdate: () => {
+          setView((prev) => ({
+            ...prev,
+            az: wrap360(tweenState.az),
+            alt: tweenState.alt,
+            fov: tweenState.fov
+          }));
+        }
+      });
     }
     setSelectedId(payload?.id ?? null);
   };
@@ -850,7 +1083,7 @@ function AppContent() {
 
     const prompt =
       mode === "summary"
-        ? `Summarize the following text in concise bullet points.\n\n${trimmed}`
+        ? `Summarize the following text in 3-4 short plain sentences.\n\n${trimmed}`
         : trimmed;
     const systemPrompt =
       mode === "summary"
@@ -1114,6 +1347,59 @@ function AppContent() {
     setView({ az: 0, alt: 25, fov: 90 });
   };
 
+  const addTimelineEvent = useCallback((message) => {
+    setTimelineEvents((prev) => [message, ...prev].slice(0, 4));
+  }, []);
+
+  const applyTimelineOffset = useCallback(
+    (hours, { released = false } = {}) => {
+      const clamped = Math.max(-TIME_TRAVEL_RANGE_HOURS, Math.min(TIME_TRAVEL_RANGE_HOURS, hours));
+      setTimeOffsetHours(clamped);
+      setTime(new Date(Date.now() + clamped * 60 * 60 * 1000));
+      if (clamped !== 0) setIsLive(false);
+      if (released) {
+        const diff = Math.abs(clamped - lastTimelineRelease.current);
+        const labelTime = new Date(Date.now() + clamped * 60 * 60 * 1000).toLocaleString();
+        addTimelineEvent("Timeline released");
+        addTimelineEvent("Timeline set to " + labelTime);
+        if (diff >= 6) {
+          addTimelineEvent("Jumped to " + labelTime);
+        }
+        lastTimelineRelease.current = clamped;
+      }
+    },
+    [addTimelineEvent]
+  );
+
+  const toggleTimelinePlayback = useCallback(() => {
+    setIsTimelinePlaying((current) => {
+      const next = !current;
+      addTimelineEvent(next ? "Playback started" : "Playback stopped");
+      return next;
+    });
+  }, [addTimelineEvent]);
+
+  const handleTimelineReset = useCallback(() => {
+    setTimeOffsetHours(0);
+    setTime(new Date());
+    setIsLive(true);
+    setIsTimelinePlaying(false);
+    addTimelineEvent("Returned to now");
+  }, [addTimelineEvent]);
+
+  const handleToggleLive = useCallback(() => {
+    setIsLive((current) => {
+      const next = !current;
+      if (next) {
+        setTimeOffsetHours(0);
+        setIsTimelinePlaying(false);
+        setTime(new Date());
+        addTimelineEvent("Returned to now");
+      }
+      return next;
+    });
+  }, [addTimelineEvent]);
+
   const handleCenterSatellite = () => {
     if (!activeSatellite) return;
     setView((current) => ({
@@ -1125,6 +1411,10 @@ function AppContent() {
 
   const handleViewChange = (partial) => {
     if (useSensors) setUseSensors(false);
+    if (focusTweenRef.current) {
+      focusTweenRef.current.kill();
+      focusTweenRef.current = null;
+    }
     setView((current) => ({
       ...current,
       az: partial.az ?? current.az,
@@ -1231,16 +1521,63 @@ function AppContent() {
           style={{ backgroundImage: `url(${apodImage})` }}
         />
       )}
-      <div className="absolute inset-0 pointer-events-none bg-aurora" />
-      <div className="absolute inset-0 pointer-events-none bg-ambient" />
-      <div className="absolute inset-0 pointer-events-none bg-stars opacity-35" />
-      <div className="absolute inset-0 pointer-events-none bg-grid" />
-      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_top,_rgba(50,34,120,0.18),_transparent_45%),radial-gradient(circle_at_bottom,_rgba(28,20,70,0.14),_transparent_55%)]" />
+      <div
+        className="absolute inset-0 pointer-events-none bg-aurora"
+        style={{
+          transform: `translate3d(${pointer.x * 18}px, ${pointer.y * 12 + scrollY * 0.02}px, 0)`
+        }}
+      />
+      <div
+        className="absolute inset-0 pointer-events-none bg-ambient"
+        style={{
+          transform: `translate3d(${pointer.x * 12}px, ${pointer.y * 8 + scrollY * 0.015}px, 0)`
+        }}
+      />
+      <div
+        className="absolute inset-0 pointer-events-none bg-stars opacity-35"
+        style={{
+          transform: `translate3d(${pointer.x * 28}px, ${pointer.y * 20 + scrollY * 0.03}px, 0)`
+        }}
+      />
+      <div
+        className="absolute inset-0 pointer-events-none bg-stars opacity-20"
+        style={{
+          transform: `translate3d(${pointer.x * 8}px, ${pointer.y * 6 + scrollY * 0.01}px, 0)`
+        }}
+      />
+      <div
+        className="absolute inset-0 pointer-events-none bg-grid"
+        style={{
+          transform: `translate3d(${pointer.x * 6}px, ${pointer.y * 4 + scrollY * 0.008}px, 0)`
+        }}
+      />
+      <div
+        className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_top,_rgba(50,34,120,0.18),_transparent_45%),radial-gradient(circle_at_bottom,_rgba(28,20,70,0.14),_transparent_55%)]"
+        style={{
+          transform: `translate3d(${pointer.x * 10}px, ${pointer.y * 8 + scrollY * 0.012}px, 0)`
+        }}
+      />
       <div className="absolute inset-0 pointer-events-none bg-vignette" />
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            "linear-gradient(90deg, rgba(2,6,23,0.55) 0%, rgba(2,6,23,0) 18%, rgba(2,6,23,0) 82%, rgba(2,6,23,0.55) 100%)"
+        }}
+      />
       <div className="absolute inset-0 pointer-events-none z-10">
-        <span className="meteor meteor-1" />
-        <span className="meteor meteor-2" />
-        <span className="meteor meteor-3" />
+        {meteors.map((meteor) => (
+          <span
+            key={meteor.id}
+            className="meteor meteor--fly"
+            style={{
+              top: `${meteor.top}%`,
+              left: `${meteor.left}%`,
+              width: `${meteor.width}px`,
+              animationDuration: `${meteor.duration}s`
+            }}
+          />
+        ))}
       </div>
       {activeTab === "sky" && (
         viewMode === "360" ? (
@@ -1248,6 +1585,8 @@ function AppContent() {
             objects={objects}
             view={view}
             onViewChange={handleViewChange}
+            onSelect={handleSelect}
+            selectedId={selectedId}
             isLoading={skyDomeLoading}
             status={skyDomeStatus}
           />
@@ -1301,7 +1640,7 @@ function AppContent() {
           </div>
         </div>
 
-        <div className="flex flex-col items-end gap-4 w-80 pointer-events-auto">
+        <div className="flex flex-col items-end gap-4 w-80 pointer-events-auto sidebar-rail">
           <div className="relative w-full">
             <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
             <input
@@ -1362,7 +1701,7 @@ function AppContent() {
             </button>
           </div>
           {/* Tab Switcher */}
-          <div className="flex w-full tab-bar">
+          <div className="grid w-full tab-bar grid-cols-4">
             <button
               onClick={() => setActiveTab("sky")}
               style={{
@@ -1371,7 +1710,7 @@ function AppContent() {
                 "--tab-accent-glow": "rgba(112, 0, 255, 0.3)",
                 "--tab-accent-line": "rgba(112, 0, 255, 0.9)"
               }}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 tab-button ${
+              className={`flex items-center justify-center gap-1 px-2 py-2 tab-button ${
                 activeTab === "sky" ? "tab-button--active" : ""
               }`}
             >
@@ -1386,7 +1725,7 @@ function AppContent() {
                 "--tab-accent-glow": "rgba(0, 255, 133, 0.3)",
                 "--tab-accent-line": "rgba(0, 255, 133, 0.9)"
               }}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 tab-button ${
+              className={`flex items-center justify-center gap-1 px-2 py-2 tab-button ${
                 activeTab === "climate" ? "tab-button--active" : ""
               }`}
             >
@@ -1401,7 +1740,7 @@ function AppContent() {
                 "--tab-accent-glow": "rgba(255, 69, 0, 0.3)",
                 "--tab-accent-line": "rgba(255, 69, 0, 0.9)"
               }}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 tab-button ${
+              className={`flex items-center justify-center gap-1 px-2 py-2 tab-button ${
                 activeTab === "disaster" ? "tab-button--active" : ""
               }`}
             >
@@ -1416,7 +1755,7 @@ function AppContent() {
                 "--tab-accent-glow": "rgba(245, 158, 11, 0.25)",
                 "--tab-accent-line": "rgba(245, 158, 11, 0.8)"
               }}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 tab-button ${
+              className={`flex items-center justify-center gap-1 px-2 py-2 tab-button ${
                 activeTab === "agriculture" ? "tab-button--active" : ""
               }`}
             >
@@ -1443,6 +1782,10 @@ function AppContent() {
           </button>
           {/* Teaching Module Controls */}
           <div className="w-full space-y-2 pt-2 border-t border-white/10">
+            <div className="flex items-center justify-between rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-slate-300">
+              <span>Learning Points</span>
+              <span>{totalPoints} pts · {exploredCount} explored</span>
+            </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={toggleLearningMode}
@@ -1472,11 +1815,6 @@ function AppContent() {
           </div>
         </div>
       </header>
-
-      {/* Learning Prompt Banner */}
-      {learningMode && !selectedObject && activeTab === "sky" && (
-        <LearningPromptBanner message="Tap any object in the sky to learn about it" />
-      )}
 
       {/* Climate Tab */}
       {activeTab === "climate" && (
@@ -1543,7 +1881,7 @@ function AppContent() {
       )}
 
       {/* Sky Tab Panels */}
-      <div className={`absolute left-6 bottom-36 w-80 space-y-6 z-20 max-h-[calc(100vh-260px)] overflow-y-auto pb-6 custom-scrollbar ${activeTab !== "sky" ? "hidden" : ""}`}>
+      <div className={`absolute left-6 bottom-36 w-80 space-y-6 z-20 max-h-[calc(100vh-260px)] overflow-y-auto pb-6 custom-scrollbar sidebar-rail ${activeTab !== "sky" ? "hidden" : ""}`}>
         <aside className="rounded-3xl panel-glass panel-hover px-6 py-5">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-title">
@@ -1606,7 +1944,7 @@ function AppContent() {
                   <div className="text-label">Magnitude</div>
                   <div className="text-value">
                     {selectedObject.mag !== null && selectedObject.mag !== undefined
-                      ? selectedObject.mag.toFixed(2)
+                      ? formatFixed(selectedObject.mag, 2, "--")
                       : "--"}
                   </div>
                 </div>
@@ -1692,7 +2030,7 @@ function AppContent() {
       <footer className="absolute bottom-6 left-6 right-6 flex items-center justify-between z-[60] pointer-events-auto">
         <div className="flex items-center gap-4">
           <button
-            onClick={() => setIsLive((value) => !value)}
+            onClick={handleToggleLive}
             className="flex items-center gap-2 btn-secondary px-4 py-2"
           >
             {isLive ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
@@ -1707,6 +2045,86 @@ function AppContent() {
           </div>
         </div>
       </footer>
+
+      <div className="fixed bottom-6 left-1/2 z-[65] w-[360px] -translate-x-1/2 rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 backdrop-blur pointer-events-auto">
+        <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-slate-400">
+          <span>Time Travel Mode</span>
+          <div className="flex items-center gap-2">
+            <span>{isTimelinePlaying ? "Playing" : isLive && timeOffsetHours === 0 ? "Live" : "Paused"}</span>
+            <button
+              onClick={() => setIsTimelineMinimized((value) => !value)}
+              className="btn-tertiary px-2 py-1"
+            >
+              {isTimelineMinimized ? "Expand" : "Minimize"}
+            </button>
+          </div>
+        </div>
+        {!isTimelineMinimized && (
+          <>
+            {learningMode && !selectedObject && activeTab === "sky" && (
+              <div className="mt-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[11px] text-slate-200">
+                Tap any object in the sky to learn about it
+              </div>
+            )}
+            <div className="mt-2 flex items-center gap-3">
+              <button
+                onClick={toggleTimelinePlayback}
+                className="btn-tertiary px-3 py-1"
+              >
+                {isTimelinePlaying ? "Stop" : "Play"}
+              </button>
+              <input
+                type="range"
+                min={-TIME_TRAVEL_RANGE_HOURS}
+                max={TIME_TRAVEL_RANGE_HOURS}
+                step={TIME_TRAVEL_STEP_HOURS}
+                value={timeOffsetHours}
+                onMouseDown={() => {
+                  setIsTimelineScrubbing(true);
+                  setIsTimelinePlaying((current) => {
+                    if (current) addTimelineEvent("Playback stopped");
+                    return false;
+                  });
+                }}
+                onTouchStart={() => {
+                  setIsTimelineScrubbing(true);
+                  setIsTimelinePlaying((current) => {
+                    if (current) addTimelineEvent("Playback stopped");
+                    return false;
+                  });
+                }}
+                onChange={(event) => applyTimelineOffset(Number(event.target.value))}
+                onMouseUp={(event) => {
+                  setIsTimelineScrubbing(false);
+                  applyTimelineOffset(Number(event.target.value), { released: true });
+                }}
+                onTouchEnd={(event) => {
+                  setIsTimelineScrubbing(false);
+                  applyTimelineOffset(Number(event.target.value), { released: true });
+                }}
+                className="flex-1"
+              />
+              <button
+                onClick={handleTimelineReset}
+                className="btn-tertiary px-3 py-1"
+              >
+                Now
+              </button>
+            </div>
+            <div className="mt-2 flex items-center justify-between text-[11px] text-slate-300">
+              <span>{new Date(Date.now() + timeOffsetHours * 60 * 60 * 1000).toLocaleString()}</span>
+              <span>{isTimelineScrubbing ? "Scrubbing" : ""}</span>
+            </div>
+            {timelineEvents.length > 0 && (
+              <div className="mt-2 space-y-1 text-[10px] text-slate-400">
+                {timelineEvents.map((entry, index) => (
+                  <div key={`${entry}-${index}`}>{entry}</div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       {apodImage && nasaApod && (
         <div className="absolute bottom-6 right-6 w-[320px] rounded-2xl panel-glass panel-hover overflow-hidden z-20">
@@ -1943,31 +2361,36 @@ function AppContent() {
                     {satelliteTarget === "jwst" ? "JWST" : "Hubble"}
                   </h3>
                   <span className="text-label">
-                    {activeSatellite ? "Live" : "Unavailable"}
+                    {activeLiveUrl ? "Live Feed" : "Offline"}
                   </span>
                 </div>
-                {activeSatellite ? (
-                  <div className="grid gap-4 text-sm text-slate-200 md:grid-cols-2">
+                <div className="grid gap-4 text-sm text-slate-200 md:grid-cols-2">
+                  <div>
+                    <div className="text-label">Azimuth</div>
+                    <div>{activeSatellite ? formatAngle(activeSatellite.az) : "--"}</div>
+                  </div>
+                  <div>
+                    <div className="text-label">Altitude</div>
+                    <div>{activeSatellite ? formatAngle(activeSatellite.alt) : "--"}</div>
+                  </div>
+                  <div>
+                    <div className="text-label">Visibility</div>
                     <div>
-                      <div className="text-label">Azimuth</div>
-                      <div>{formatAngle(activeSatellite.az)}</div>
-                    </div>
-                    <div>
-                      <div className="text-label">Altitude</div>
-                      <div>{formatAngle(activeSatellite.alt)}</div>
-                    </div>
-                    <div>
-                      <div className="text-label">Visibility</div>
-                      <div>{activeSatellite.alt > 0 ? "Above horizon" : "Below horizon"}</div>
-                    </div>
-                    <div>
-                      <div className="text-label">Next Step</div>
-                      <div>Use Center to align the sky view</div>
+                      {activeSatellite
+                        ? activeSatellite.alt > 0
+                          ? "Above horizon"
+                          : "Below horizon"
+                        : "--"}
                     </div>
                   </div>
-                ) : (
-                  <div className="text-sm text-slate-400">
-                    Satellite data unavailable. Check network or retry shortly.
+                  <div>
+                    <div className="text-label">Next Step</div>
+                    <div>Use Center to align the sky view</div>
+                  </div>
+                </div>
+                {!activeSatellite && (
+                  <div className="mt-3 text-[11px] text-slate-400">
+                    Tracking data unavailable. Live feed is still available below.
                   </div>
                 )}
                 <div className="mt-6">
@@ -2015,47 +2438,68 @@ function AppContent() {
                   )}
                   {telescopeFeedMode === "live" ? (
                     <div className="rounded-2xl overflow-hidden border border-white/10 bg-slate-950/70">
-                      {activeSatellite ? (
-                        activeLiveUrl ? (
-                          <div className="relative">
-                            {!liveEmbedLoaded && (
-                              <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/80 text-xs text-slate-200">
-                                Loading live stream...
-                              </div>
-                            )}
+                      {activeLiveUrl ? (
+                        <div className="relative">
+                          {!liveEmbedLoaded && !liveEmbedFailed && (
+                            <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/80 text-xs text-slate-200">
+                              Loading live stream...
+                            </div>
+                          )}
+                          {(!liveEmbedFailed && activeLiveUrl) ? (
                             <iframe
+                              key={`${telescopeFeedMode}-${satelliteTarget}-${activeLiveUrl}`}
                               title={`${satelliteTarget} live feed`}
                               src={activeLiveUrl}
                               className="h-56 w-full"
-                              allow="autoplay; fullscreen"
-                              referrerPolicy="no-referrer"
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                              referrerPolicy="strict-origin-when-cross-origin"
                               allowFullScreen
-                              onLoad={() => setLiveEmbedLoaded(true)}
+                              onLoad={() => {
+                                setLiveEmbedLoaded(true);
+                                setLiveEmbedFailed(false);
+                              }}
+                              onError={() => {
+                                setLiveEmbedLoaded(false);
+                                setLiveEmbedFailed(true);
+                                setFeedback({
+                                  tone: "error",
+                                  message: "Live embed blocked. Falling back to video."
+                                });
+                              }}
                             />
-                          </div>
-                        ) : (
-                          <div className="p-4 text-sm text-slate-300">
-                            Live stream URL missing. Switch to Image Feed.
-                          </div>
-                        )
+                          ) : activeFallbackVideoUrl ? (
+                            <iframe
+                              title={`${satelliteTarget} video feed`}
+                              src={activeFallbackVideoUrl}
+                              className="h-56 w-full"
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                              referrerPolicy="strict-origin-when-cross-origin"
+                              allowFullScreen
+                            />
+                          ) : (
+                            <div className="flex h-56 w-full items-center justify-center text-xs text-slate-300">
+                              Live embed blocked. Use the open link below.
+                            </div>
+                          )}
+                        </div>
                       ) : (
                         <div className="p-4 text-sm text-slate-300">
-                          Select a telescope to view its live stream.
+                          Live stream URL missing. Switch to Image Feed.
                         </div>
                       )}
                       <div className="px-4 py-2 text-[11px] text-slate-300 flex items-center justify-between border-t border-white/10 bg-slate-950/80">
-                        <span>If the player fails, open the stream directly.</span>
+                        <span>If the player fails, open the tracker directly.</span>
                         <a
                           href={
                             satelliteTarget === "jwst"
-                              ? JWST_LIVE_URL
-                              : HUBBLE_LIVE_URL
+                              ? JWST_YT_URL
+                              : HUBBLE_YT_URL
                           }
                           target="_blank"
                           rel="noreferrer"
                           className="btn-tertiary px-3 py-1"
                         >
-                          Open in YouTube
+                          Open Space Telescope Live
                         </a>
                       </div>
                     </div>
@@ -2117,7 +2561,7 @@ function AppContent() {
 
       {/* Guided Tour Panel */}
       {showGuidedTour && learningMode && (
-        <div className="fixed inset-x-4 bottom-40 z-50 max-h-[50vh] overflow-hidden rounded-2xl border border-white/10 bg-slate-900/95 backdrop-blur-sm shadow-2xl">
+        <div className="fixed left-1/2 bottom-40 z-50 w-[560px] max-w-[92vw] -translate-x-1/2 max-h-[65vh] overflow-auto rounded-2xl border border-white/10 bg-slate-900/95 backdrop-blur-sm shadow-2xl">
           <GuidedTour
             objects={objects}
             location={activeLocation}

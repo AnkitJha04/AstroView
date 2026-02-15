@@ -14,7 +14,9 @@ const defaultState = {
   quizResults: {},
   explanationCache: {},
   tourHistory: [],
-  activePrompt: null
+  activePrompt: null,
+  points: 0,
+  exploredObjects: []
 };
 
 const LearningContext = createContext(null);
@@ -125,6 +127,26 @@ export function LearningModeProvider({ children }) {
     }));
   }, []);
 
+  const addPoints = useCallback((points, reason) => {
+    if (!Number.isFinite(points) || points <= 0) return;
+    setState((prev) => ({
+      ...prev,
+      points: prev.points + points
+    }));
+  }, []);
+
+  const awardExploration = useCallback((objectId) => {
+    if (!objectId) return;
+    setState((prev) => {
+      if (prev.exploredObjects.includes(objectId)) return prev;
+      return {
+        ...prev,
+        exploredObjects: [...prev.exploredObjects, objectId],
+        points: prev.points + 10
+      };
+    });
+  }, []);
+
   // Reset all progress
   const resetProgress = useCallback(() => {
     setState({ ...defaultState, learningMode: state.learningMode });
@@ -137,6 +159,8 @@ export function LearningModeProvider({ children }) {
     completedLessons: state.completedLessons,
     quizResults: state.quizResults,
     activePrompt: state.activePrompt,
+    points: state.points,
+    exploredObjects: state.exploredObjects,
 
     // Actions
     toggleLearningMode,
@@ -148,12 +172,16 @@ export function LearningModeProvider({ children }) {
     showLearningPrompt,
     dismissPrompt,
     addToTourHistory,
+    addPoints,
+    awardExploration,
     resetProgress,
 
     // Computed
     lessonsCompleted: state.completedLessons.length,
     isLessonCompleted: (id) => state.completedLessons.includes(id),
-    getLessonScore: (id) => state.quizResults[id] || null
+    getLessonScore: (id) => state.quizResults[id] || null,
+    totalPoints: state.points,
+    exploredCount: state.exploredObjects.length
   }), [
     state,
     toggleLearningMode,
@@ -165,6 +193,8 @@ export function LearningModeProvider({ children }) {
     showLearningPrompt,
     dismissPrompt,
     addToTourHistory,
+    addPoints,
+    awardExploration,
     resetProgress
   ]);
 

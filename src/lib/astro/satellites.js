@@ -3,24 +3,46 @@ import { radToDeg, wrap360 } from "./skyMath";
 
 const CACHE_KEY = "astroview.tle.cache";
 const CACHE_TTL_MS = 1000 * 60 * 60 * 12;
+const buildTleBaseUrls = () => {
+  const raw =
+    import.meta.env.VITE_TLE_BASE_URLS ||
+    import.meta.env.VITE_TLE_BASE_URL ||
+    "";
+  const custom = raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value && value.startsWith("http"))
+    .map((value) => value.replace(/\/+$/, ""));
+  const defaults = ["https://celestrak.org", "https://celestrak.com"];
+  return [...custom, ...defaults].reduce((acc, url) => {
+    if (!acc.includes(url)) acc.push(url);
+    return acc;
+  }, []);
+};
 
-const FALLBACK_TLES = [
-  {
-    name: "ISS (ZARYA)",
-    line1: "1 25544U 98067A   24040.54668981  .00012877  00000+0  23033-3 0  9992",
-    line2: "2 25544  51.6423  53.4510 0003631  82.6266  36.0923 15.50908876440996"
-  },
-  {
-    name: "HUBBLE SPACE TELESCOPE",
-    line1: "1 20580U 90037B   24040.20415972  .00001389  00000+0  72408-4 0  9997",
-    line2: "2 20580  28.4697  54.1141 0002866  71.5876 288.5357 15.09289063305363"
-  },
-  {
-    name: "JAMES WEBB SPACE TELESCOPE",
-    line1: "1 50463U 21130A   24040.01315501  .00000004  00000+0  00000+0 0  9994",
-    line2: "2 50463   0.0622  85.6965 0017282  24.8623  31.4586  1.00270029  8708"
-  }
-];
+const TLE_BASE_URLS = buildTleBaseUrls();
+
+const buildJsonTleBaseUrls = () => {
+  const raw =
+    import.meta.env.VITE_TLE_JSON_BASE_URLS ||
+    import.meta.env.VITE_TLE_JSON_BASE_URL ||
+    "";
+  const custom = raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value && value.startsWith("http"))
+    .map((value) => value.replace(/\/+$/, ""));
+  const defaults = ["https://api.tle.ivanstanojevic.me/tle"];
+  return [...custom, ...defaults].reduce((acc, url) => {
+    if (!acc.includes(url)) acc.push(url);
+    return acc;
+  }, []);
+};
+
+const TLE_JSON_BASE_URLS = buildJsonTleBaseUrls();
+const JWST_TLE_URL = import.meta.env.VITE_JWST_TLE_URL || "";
+const JWST_TLE_TEXT = import.meta.env.VITE_JWST_TLE_TEXT || "";
+
 
 const parseTle = (text) => {
   const lines = text
@@ -37,6 +59,54 @@ const parseTle = (text) => {
     tleList.push({ name, line1, line2 });
   }
   return tleList;
+};
+
+const mergeTleLists = (base, extra) => {
+  const merged = [...base];
+  extra.forEach((entry) => {
+    const exists = merged.some(
+      (item) => item.name === entry.name && item.line1 === entry.line1 && item.line2 === entry.line2
+    );
+    if (!exists) merged.push(entry);
+  });
+  return merged;
+};
+
+const fetchJwstOverrideTle = async () => {
+  const directText = JWST_TLE_TEXT.trim();
+  if (directText) {
+    const parsed = parseTle(directText);
+    return parsed.length ? parsed : [];
+  }
+
+  if (!JWST_TLE_URL) return [];
+  const response = await fetch(JWST_TLE_URL);
+  if (!response.ok) throw new Error("JWST TLE override fetch failed");
+  const text = await response.text();
+  return parseTle(text);
+};
+
+const fetchJsonTleByCatalog = async (catalog) => {
+  let lastError;
+  for (const baseUrl of TLE_JSON_BASE_URLS) {
+    try {
+      const response = await fetch(`${baseUrl}/${catalog}`);
+      if (!response.ok) throw new Error("TLE JSON fetch failed");
+      const payload = await response.json();
+      if (!payload?.line1 || !payload?.line2) continue;
+      return [
+        {
+          name: payload.name || `CATALOG ${catalog}`,
+          line1: payload.line1,
+          line2: payload.line2
+        }
+      ];
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  if (lastError) throw lastError;
+  return [];
 };
 
 const loadCache = (allowExpired = false) => {
@@ -62,17 +132,28 @@ const saveCache = (data) => {
   }
 };
 
+const fetchTleText = async (path) => {
+  let lastError;
+  for (const baseUrl of TLE_BASE_URLS) {
+    try {
+      const response = await fetch(`${baseUrl}${path}`);
+      if (!response.ok) throw new Error("TLE fetch failed");
+      return await response.text();
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError || new Error("TLE fetch failed");
+};
+
 export const fetchTleGroups = async (groups) => {
   const cached = loadCache();
-  if (cached) return cached;
 
-  try {
+  const fetchFresh = async () => {
     const requests = groups.map(async (group) => {
-      const response = await fetch(
-        `https://celestrak.org/NORAD/elements/gp.php?GROUP=${group}&FORMAT=tle`
+      const text = await fetchTleText(
+        `/NORAD/elements/gp.php?GROUP=${group}&FORMAT=tle`
       );
-      if (!response.ok) throw new Error("TLE fetch failed");
-      const text = await response.text();
       return parseTle(text);
     });
 
@@ -87,59 +168,105 @@ export const fetchTleGroups = async (groups) => {
       }, []);
 
     if (merged.length) saveCache(merged);
-    return merged.length ? merged : FALLBACK_TLES.slice();
+    return merged;
+  };
+
+  if (!cached) {
+    try {
+      return await fetchFresh();
+    } catch (err) {
+      const stale = loadCache(true);
+      return stale?.length ? stale : [];
+    }
+  }
+
+  try {
+    const fresh = await fetchFresh();
+    return fresh.length ? fresh : cached;
   } catch (err) {
-    const stale = loadCache(true);
-    return stale?.length ? stale : FALLBACK_TLES.slice();
+    return cached;
   }
 };
 
 export const fetchTleByCatalog = async (catalogNumbers) => {
   if (!catalogNumbers?.length) return [];
+  const wantsJwst = catalogNumbers.includes(50463);
   try {
     const requests = catalogNumbers.map(async (catalog) => {
-      const response = await fetch(
-        `https://celestrak.org/NORAD/elements/gp.php?CATNR=${catalog}&FORMAT=tle`
+      const text = await fetchTleText(
+        `/NORAD/elements/gp.php?CATNR=${catalog}&FORMAT=tle`
       );
-      if (!response.ok) throw new Error("TLE fetch failed");
-      const text = await response.text();
       return parseTle(text);
     });
 
     const results = await Promise.allSettled(requests);
-    const merged = results.flatMap((result) =>
+    let merged = results.flatMap((result) =>
       result.status === "fulfilled" ? result.value : []
     );
-    return merged.length ? merged : FALLBACK_TLES.slice();
+    if (wantsJwst) {
+      const override = await fetchJwstOverrideTle();
+      if (override.length) merged = mergeTleLists(merged, override);
+    }
+    if (merged.length) return merged;
+
+    const fallbackResults = await Promise.allSettled(
+      catalogNumbers.map((catalog) => fetchJsonTleByCatalog(catalog))
+    );
+    let fallbackMerged = fallbackResults.flatMap((result) =>
+      result.status === "fulfilled" ? result.value : []
+    );
+    if (wantsJwst) {
+      const override = await fetchJwstOverrideTle();
+      if (override.length) fallbackMerged = mergeTleLists(fallbackMerged, override);
+    }
+    return fallbackMerged;
   } catch (err) {
-    return FALLBACK_TLES.slice();
+    try {
+      const fallbackResults = await Promise.allSettled(
+        catalogNumbers.map((catalog) => fetchJsonTleByCatalog(catalog))
+      );
+      let merged = fallbackResults.flatMap((result) =>
+        result.status === "fulfilled" ? result.value : []
+      );
+      if (wantsJwst) {
+        const override = await fetchJwstOverrideTle();
+        if (override.length) merged = mergeTleLists(merged, override);
+      }
+      if (merged.length) return merged;
+    } catch (fallbackErr) {
+      // ignore fallback errors
+    }
+    const stale = loadCache(true);
+    return stale?.length ? stale : [];
   }
 };
 
 export const fetchTleByName = async (names) => {
   if (!names?.length) return [];
+  const wantsJwst = names.some((name) => /jwst|webb/i.test(name));
   try {
     const requests = names.map(async (name) => {
       const encoded = encodeURIComponent(name);
-      const response = await fetch(
-        `https://celestrak.org/NORAD/elements/gp.php?NAME=${encoded}&FORMAT=tle`
+      const text = await fetchTleText(
+        `/NORAD/elements/gp.php?NAME=${encoded}&FORMAT=tle`
       );
-      if (!response.ok) throw new Error("TLE fetch failed");
-      const text = await response.text();
       return parseTle(text);
     });
 
     const results = await Promise.allSettled(requests);
-    const merged = results.flatMap((result) =>
+    let merged = results.flatMap((result) =>
       result.status === "fulfilled" ? result.value : []
     );
-    return merged.length ? merged : FALLBACK_TLES.slice();
+    if (wantsJwst) {
+      const override = await fetchJwstOverrideTle();
+      if (override.length) merged = mergeTleLists(merged, override);
+    }
+    return merged;
   } catch (err) {
-    return FALLBACK_TLES.slice();
+    const stale = loadCache(true);
+    return stale?.length ? stale : [];
   }
 };
-
-export const getFallbackTles = () => FALLBACK_TLES.slice();
 
 export const getSatelliteObjects = (time, location, tleList, limit = 20) => {
   if (!tleList?.length) return [];
