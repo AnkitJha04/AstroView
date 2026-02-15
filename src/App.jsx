@@ -18,6 +18,7 @@ import {
 import SkyCanvas from "./components/SkyCanvas";
 import SkyDome from "./components/SkyDome";
 import ClimateTab from "./components/ClimateTab";
+import DisasterModule from "./components/DisasterModule";
 import { LearningModeProvider, useLearningMode } from "./lib/teaching/useLearningMode";
 import { ObjectLearningPanel, GuidedTour, LearningPromptBanner } from "./components/TeachingModule";
 import { LearningModeToggle } from "./components/EducationCard";
@@ -247,7 +248,7 @@ function AppContent() {
   const [skyApiObjects, setSkyApiObjects] = useState([]);
   const [skyApiStatus, setSkyApiStatus] = useState("Idle");
   const lastSkyApiFetch = useRef(0);
-  const [activeTab, setActiveTab] = useState("sky"); // "sky" or "climate"
+  const [activeTab, setActiveTab] = useState("sky"); // "sky", "climate", or "disaster"
   const [showLessonsLibrary, setShowLessonsLibrary] = useState(false);
   const [showGuidedTour, setShowGuidedTour] = useState(false);
 
@@ -1322,6 +1323,17 @@ function AppContent() {
               <Globe2 className="w-3 h-3" />
               Climate
             </button>
+            <button
+              onClick={() => setActiveTab("disaster")}
+              className={`flex-1 flex items-center justify-center gap-2 rounded-full px-3 py-2 text-[11px] transition-colors ${
+                activeTab === "disaster"
+                  ? "bg-red-500/25 text-red-100 border border-red-400/30"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Activity className="w-3 h-3" />
+              Disaster
+            </button>
           </div>
           <div className="text-[10px] text-slate-500">
             {skyViewStatus} · AstronomyAPI: {skyApiStatus}
@@ -1383,12 +1395,38 @@ function AppContent() {
 
       {/* Climate Tab */}
       {activeTab === "climate" && (
-        <div className="absolute left-6 right-6 top-36 bottom-36 z-20 overflow-y-auto pb-6">
+        <div className="absolute left-6 right-[360px] top-36 bottom-36 z-20 overflow-y-auto pb-6">
           <ClimateTab
             coords={coords}
             isActive={activeTab === "climate"}
             showEducation={learningMode}
           />
+        </div>
+      )}
+
+      {/* Disaster Tab */}
+      {activeTab === "disaster" && (
+        <div className="absolute left-6 right-[360px] top-36 bottom-36 z-20 overflow-y-auto pb-6">
+          {coords && coords.lat !== undefined ? (
+            <DisasterModule
+              location={{ latitude: coords.lat, longitude: coords.lon }}
+              climateData={null}
+              onClose={() => setActiveTab("climate")}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full">
+              <div className="p-8 bg-black/40 backdrop-blur-lg rounded-2xl border border-white/10 text-center max-w-md">
+                <span className="text-4xl mb-4 block">📍</span>
+                <h3 className="text-lg font-semibold text-white/90 mb-2">Location Required</h3>
+                <p className="text-sm text-white/50 mb-4">
+                  Disaster monitoring requires your location to fetch regional hazard data.
+                </p>
+                <p className="text-xs text-white/40">
+                  Please enable location services or wait for GPS to lock.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1949,7 +1987,15 @@ function AppContent() {
 
       {/* Lessons Library Modal */}
       {showLessonsLibrary && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm"
+          onClick={(e) => {
+            // Close when clicking the backdrop (not the modal content)
+            if (e.target === e.currentTarget) {
+              setShowLessonsLibrary(false);
+            }
+          }}
+        >
           <div className="w-full max-w-md h-[80vh] rounded-3xl overflow-hidden border border-white/10 shadow-2xl">
             <LessonsLibrary
               visible={showLessonsLibrary}
@@ -1959,9 +2005,9 @@ function AppContent() {
         </div>
       )}
 
-      {/* Guided Tour Modal */}
+      {/* Guided Tour Panel */}
       {showGuidedTour && learningMode && (
-        <div className="fixed inset-x-4 bottom-40 z-50 max-h-[50vh] overflow-hidden">
+        <div className="fixed inset-x-4 bottom-40 z-50 max-h-[50vh] overflow-hidden rounded-2xl border border-white/10 bg-slate-900/95 backdrop-blur-sm shadow-2xl">
           <GuidedTour
             objects={objects}
             location={activeLocation}

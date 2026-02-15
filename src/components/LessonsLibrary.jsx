@@ -215,10 +215,21 @@ const ActiveLessonView = ({ lesson, onClose, onComplete }) => {
           ) : (
             // Quiz
             <div className="space-y-4">
-              <h4 className="text-[14px] font-medium text-white flex items-center gap-2">
-                <Award size={16} className="text-amber-400" />
-                Quick Check
-              </h4>
+              <div className="flex items-center justify-between">
+                <h4 className="text-[14px] font-medium text-white flex items-center gap-2">
+                  <Award size={16} className="text-amber-400" />
+                  Quick Check
+                </h4>
+                <button
+                  onClick={() => {
+                    onComplete(lesson.id);
+                    onClose();
+                  }}
+                  className="text-[11px] text-slate-500 hover:text-slate-300"
+                >
+                  Skip Quiz
+                </button>
+              </div>
               <LessonQuiz 
                 questions={lesson.quiz} 
                 onComplete={handleQuizComplete}
@@ -245,19 +256,27 @@ const ActiveLessonView = ({ lesson, onClose, onComplete }) => {
       {/* Footer */}
       {!showQuiz || !quizScore.completed ? (
         !showQuiz && (
-          <div className="shrink-0 p-4 border-t border-white/10 flex items-center justify-between">
+          <div className="shrink-0 p-4 border-t border-white/10">
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => setCurrentStep(prev => Math.max(0, prev - 1))}
+                disabled={currentStep === 0}
+                className="px-4 py-2 text-[12px] text-slate-400 hover:text-slate-200 disabled:opacity-30"
+              >
+                Back
+              </button>
+              <button
+                onClick={handleNext}
+                className="px-6 py-2 rounded-lg text-[12px] font-medium bg-cyan-500 text-white hover:bg-cyan-400 transition-colors"
+              >
+                {isLastStep ? (lesson.quiz ? "Take Quiz" : "Complete") : "Next"}
+              </button>
+            </div>
             <button
-              onClick={() => setCurrentStep(prev => Math.max(0, prev - 1))}
-              disabled={currentStep === 0}
-              className="px-4 py-2 text-[12px] text-slate-400 disabled:opacity-30"
+              onClick={onClose}
+              className="w-full mt-3 px-4 py-2 rounded-lg text-[11px] text-slate-500 hover:text-slate-300 hover:bg-white/5 transition-colors"
             >
-              Back
-            </button>
-            <button
-              onClick={handleNext}
-              className="px-6 py-2 rounded-lg text-[12px] font-medium bg-cyan-500 text-white hover:bg-cyan-400 transition-colors"
-            >
-              {isLastStep ? (lesson.quiz ? "Take Quiz" : "Complete") : "Next"}
+              Exit Lesson
             </button>
           </div>
         )
@@ -267,7 +286,7 @@ const ActiveLessonView = ({ lesson, onClose, onComplete }) => {
             onClick={onClose}
             className="w-full px-6 py-2 rounded-lg text-[12px] font-medium bg-emerald-500 text-white hover:bg-emerald-400 transition-colors"
           >
-            Done
+            Back to Library
           </button>
         </div>
       )}

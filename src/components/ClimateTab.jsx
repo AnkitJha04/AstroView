@@ -431,6 +431,7 @@ Active Alerts: ${alerts.length > 0 ? alerts.map((a) => a.name).join(", ") : "Non
         </div>
       )}
 
+      {/* Main Climate Dashboard */}
       <div className="grid gap-4 md:grid-cols-2">
         {/* Climate Overview */}
         <ClimateCard

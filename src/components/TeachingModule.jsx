@@ -157,7 +157,7 @@ export function ObjectLearningPanel({ object, constellation, onClose }) {
 /**
  * Guided Sky Tour Component
  */
-export function GuidedTour({ objects, onCenterObject, onSelectObject }) {
+export function GuidedTour({ objects, onCenterObject, onSelectObject, onClose }) {
   const { learningMode, addToTourHistory } = useLearningMode();
   const [tour, setTour] = useState([]);
   const [currentStep, setCurrentStep] = useState(0);
@@ -259,6 +259,16 @@ export function GuidedTour({ objects, onCenterObject, onSelectObject }) {
       icon={Compass}
       accentColor="#38bdf8"
       className="mb-4"
+      headerAction={
+        <button
+          onClick={onClose}
+          className="p-1.5 rounded-full bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+          title="Close tour"
+        >
+          <span className="sr-only">Close</span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      }
     >
       {/* Tour Summary */}
       <div className="flex items-center gap-4 mb-4 text-[10px] text-slate-500">
@@ -338,6 +348,7 @@ export function GuidedTour({ objects, onCenterObject, onSelectObject }) {
                 ? "border-amber-400/30 bg-amber-500/20 text-amber-200"
                 : "border-cyan-400/30 bg-cyan-500/20 text-cyan-200"
             }`}
+            title={isPlaying ? "Pause" : "Auto-play"}
           >
             {isPlaying ? (
               <Pause className="w-4 h-4" />
@@ -348,6 +359,7 @@ export function GuidedTour({ objects, onCenterObject, onSelectObject }) {
           <button
             onClick={handleRestart}
             className="p-2 rounded-full border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"
+            title="Restart"
           >
             <RotateCcw className="w-4 h-4" />
           </button>
@@ -362,6 +374,16 @@ export function GuidedTour({ objects, onCenterObject, onSelectObject }) {
           <ChevronRight className="w-4 h-4" />
         </button>
       </div>
+
+      {/* End Tour Button */}
+      <div className="mt-4 pt-4 border-t border-white/10">
+        <button
+          onClick={onClose}
+          className="w-full px-4 py-2 rounded-full text-[11px] border border-slate-500/30 bg-slate-500/10 text-slate-300 hover:bg-slate-500/20 transition-colors"
+        >
+          End Tour
+        </button>
+      </div>
     </EducationCard>
   );
 }
@@ -369,8 +391,9 @@ export function GuidedTour({ objects, onCenterObject, onSelectObject }) {
 /**
  * Contextual Learning Prompt Banner
  */
-export function LearningPromptBanner({ prompt, onDismiss, onLearnMore }) {
-  if (!prompt) return null;
+export function LearningPromptBanner({ message, prompt, onDismiss, onLearnMore }) {
+  const displayMessage = message || prompt?.message;
+  if (!displayMessage) return null;
 
   return (
     <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 max-w-md animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -379,8 +402,8 @@ export function LearningPromptBanner({ prompt, onDismiss, onLearnMore }) {
           <Sparkles className="w-4 h-4 text-cyan-400" />
         </div>
         <div className="flex-1">
-          <div className="text-[12px] text-slate-200">{prompt.message}</div>
-          {prompt.lessonId && (
+          <div className="text-[12px] text-slate-200">{displayMessage}</div>
+          {prompt?.lessonId && (
             <button
               onClick={() => onLearnMore?.(prompt.lessonId)}
               className="text-[11px] text-cyan-400 hover:text-cyan-300 mt-1"
@@ -389,12 +412,14 @@ export function LearningPromptBanner({ prompt, onDismiss, onLearnMore }) {
             </button>
           )}
         </div>
-        <button
-          onClick={onDismiss}
-          className="text-slate-500 hover:text-slate-300 text-lg"
-        >
-          ×
-        </button>
+        {onDismiss && (
+          <button
+            onClick={onDismiss}
+            className="text-slate-500 hover:text-slate-300 text-lg"
+          >
+            ×
+          </button>
+        )}
       </div>
     </div>
   );
